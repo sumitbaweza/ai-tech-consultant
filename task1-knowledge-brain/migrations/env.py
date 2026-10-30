@@ -42,7 +42,14 @@ def run_migrations(connection: Connection) -> None:
 
 
 async def run_async_migrations() -> None:
-    engine = create_async_engine(get_settings().database_url)
+    # search_path=public makes Postgres name every Brain object in full, as brain.<name>, so
+    # the models and the database compare by full name. With the default search_path, which
+    # starts with the role's own schema, Postgres drops the "brain." prefix from foreign keys
+    # and Alembic sees differences that aren't there. pgvector's types live in public.
+    engine = create_async_engine(
+        get_settings().database_url,
+        connect_args={"server_settings": {"search_path": "public"}},
+    )
     async with engine.connect() as connection:
         # Alembic's API is synchronous, so it runs inside the async connection's run_sync
         await connection.run_sync(run_migrations)

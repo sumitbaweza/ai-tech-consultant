@@ -21,7 +21,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=REPO_ENV_FILE, extra="ignore")
 
     # Postgres. The Brain always connects as the `brain` role, which owns the `brain` schema.
-    db_host: str = "localhost"
+    # 127.0.0.1 rather than localhost: on Windows, localhost tries IPv6 first, where nothing
+    # listens, and each refused connection costs about 2 seconds.
+    db_host: str = "127.0.0.1"
     db_port: int = 5432
     db_name: str = "consultant"
     brain_db_password: SecretStr = SecretStr("brain")

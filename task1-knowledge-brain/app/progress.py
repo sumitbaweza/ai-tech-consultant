@@ -49,7 +49,7 @@ async def run_progress(session: AsyncSession, run_id: int) -> Progress:
     status_rows = await session.execute(
         select(Page.status, func.count()).where(in_run).group_by(Page.status)
     )
-    by_status = {status.value: count for status, count in status_rows.tuples()}
+    by_status = {status.value: count for status, count in status_rows}
     remaining = (
         await session.scalar(
             select(func.count())
@@ -88,7 +88,7 @@ async def run_progress(session: AsyncSession, run_id: int) -> Progress:
 
 async def knowledge_base_stats(session: AsyncSession) -> Stats:
     status_rows = await session.execute(select(Page.status, func.count()).group_by(Page.status))
-    by_status = {status.value: count for status, count in status_rows.tuples()}
+    by_status = {status.value: count for status, count in status_rows}
     pending = by_status.get(PageStatus.PENDING.value, 0)
     discovered = by_status.get(PageStatus.DISCOVERED.value, 0)
     total = sum(by_status.values())
