@@ -66,7 +66,12 @@ async def claim_next_page(session: AsyncSession) -> Page | None:
         .scalar_subquery()
     )
     claimed = await session.scalars(
-        update(Page).where(Page.id == next_page).values(claimed_at=func.now()).returning(Page)
+        update(Page)
+        .where(Page.id == next_page)
+        .values(claimed_at=func.now())
+        .returning(Page)
+        # If this page is already loaded in the session, overwrite it with what was returned
+        .execution_options(populate_existing=True)
     )
     page = claimed.one_or_none()
     await session.commit()
@@ -75,23 +80,47 @@ async def claim_next_page(session: AsyncSession) -> Page | None:
 
 async def process_page(session: AsyncSession, fetcher: PageFetcher, page: Page) -> None:
     """Fetch one claimed page and record what happened. Every outcome releases the claim."""
+    claim = page.claimed_at
+    fetched: Fetched | None = None
+    failure: FetchError | None = None
     try:
         fetched = await fetcher.get(page.url, etag=page.etag, last_modified=page.last_modified)
-    except FetchBlocked as error:
-        _give_up(page, str(error))
     except FetchError as error:
+        failure = error
+
+    # Only the worker that still holds the claim may write. A worker frozen for longer than
+    # STALE_CLAIM (a laptop asleep, say) wakes up to find its claim looking stale, and another
+    # worker may have taken the page over. Then this result is dropped, so the page isn't
+    # saved twice.
+    if not await _still_holds_claim(session, page.id, claim):
+        logger.warning("Another worker took over %s, so this result is dropped", page.url)
+        await session.rollback()
+        return
+
+    if isinstance(failure, FetchBlocked):
+        _give_up(page, str(failure))
+    elif failure is not None:
         page.attempts += 1
         if page.attempts >= MAX_ATTEMPTS:
-            _give_up(page, f"{error} ({page.attempts} attempts)")
+            _give_up(page, f"{failure} ({page.attempts} attempts)")
         else:
-            page.error = str(error)
+            page.error = str(failure)
             page.claimed_at = None
             page.fetch_requested_at = datetime.now(UTC)  # to the back of the queue
-    else:
+    elif fetched is not None:
         await _record(session, page, fetched)
     await session.commit()
     if page.run_id is not None:
         await _finish_run_if_done(session, page.run_id)
+
+
+async def _still_holds_claim(session: AsyncSession, page_id: int, claim: datetime | None) -> bool:
+    """Lock the page's row until this transaction ends, and check that its claim is still the
+    one this worker made. The lock stops another worker from writing between check and save."""
+    current = await session.scalar(
+        select(Page.claimed_at).where(Page.id == page_id).with_for_update()
+    )
+    return current == claim
 
 
 async def _record(session: AsyncSession, page: Page, fetched: Fetched) -> None:

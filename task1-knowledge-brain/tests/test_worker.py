@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.crawler.fetch import FetchBlocked, Fetched, FetchError
 from app.jobs.worker import claim_next_page, process_page
@@ -223,3 +223,39 @@ async def test_a_robots_txt_block_fails_at_once(db_session: AsyncSession) -> Non
     await process_page(db_session, FakeFetcher(FetchBlocked("robots.txt says no")), page)
 
     assert (page.status, page.error) == (PageStatus.FAILED, "robots.txt says no")
+
+
+async def test_the_worker_holding_the_claim_saves_its_result(db_session: AsyncSession) -> None:
+    await queued_page(db_session)
+    page = await claim_next_page(db_session)
+    assert page is not None and page.claimed_at is not None
+
+    await process_page(db_session, FakeFetcher(html()), page)
+
+    assert page.status == PageStatus.ACTIVE
+    assert await db_session.scalar(select(func.count()).select_from(PageVersion)) == 1
+
+
+async def test_a_worker_whose_claim_was_taken_over_saves_nothing(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as setup:
+        await queued_page(setup)
+
+    async with session_factory() as frozen_worker:
+        page = await claim_next_page(frozen_worker)
+        assert page is not None
+        # While this worker is frozen, another one takes the page over with its own claim
+        async with session_factory() as other_worker:
+            await other_worker.execute(
+                update(Page)
+                .where(Page.id == page.id)
+                .values(claimed_at=func.now() + timedelta(seconds=1))
+            )
+            await other_worker.commit()
+
+        await process_page(frozen_worker, FakeFetcher(html()), page)
+
+    async with session_factory() as check:
+        assert await check.scalar(select(func.count()).select_from(PageVersion)) == 0
+        assert await check.scalar(select(Page.status)) == PageStatus.PENDING  # left to the other
