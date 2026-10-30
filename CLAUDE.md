@@ -81,7 +81,8 @@ When the PDFs and these notes disagree, the PDFs win. Live, editable copy of the
   - Day 2's freshness, done early: scheduled sitemap checks with `POST /v1/sitemaps/{id}/check`, retention rules that archive missing URLs and restore ones that come back, a summary per run, change history with diffs, and the archive list. Decided: a 404 leaves answers at once instead of counting toward the retention rule. The first scheduled check ran on Day 1: 1,700 pages fetched again, none changed.
   - The expert loop: an unanswered question opens an expert task (a repeat counts on the same task), and the expert's answer becomes an `expert` page that `/v1/ask` cites with `origin: expert`.
   - The MCP server, `brain-mcp` (`kb_ask`, `kb_search`, `kb_get_article`), on `mcp` 2.3. `check_capability` comes with `/v1/capabilities/check` on Day 3.
-- In progress: the Streamlit screens, `brain-ui` at http://localhost:8501, with sign-in from `BRAIN_UI_USERS`.
+  - The Streamlit screens, `brain-ui` at http://localhost:8501, each a client of the API: sign-in from `BRAIN_UI_USERS` (scrypt hashes; the example user is in `.env.example`), Progress and dashboard, Sources, Chat, Expert queue, and Change history and archive. A browser reload signs you out, since Streamlit keeps the sign-in per session.
+- Next: Task 2, the inbox.
 - Waiting: `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY` in `.env` (real descriptions, embeddings, answers and evals need them), then the seed snapshot; the first 15 Task 1 eval questions.
 - Found on Day 1:
   - The sitemap is one flat `urlset` with 1,700 URLs: 1,541 articles, 145 folders, 12 categories and 2 index pages. Every URL has a `lastmod`. The code still handles nested sitemaps, because test 2 asks for it.

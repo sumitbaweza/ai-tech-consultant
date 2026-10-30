@@ -243,6 +243,11 @@ async def test_check_now(session_factory: async_sessionmaker[AsyncSession]) -> N
             assert (await api.post("/v1/sitemaps/9999/check")).status_code == 404
             assert (await api.post(f"/v1/sitemaps/{child.id}/check")).status_code == 409
             assert (await api.post(f"/v1/sitemaps/{unconfirmed.id}/check")).status_code == 409
+
+            # The list holds the sitemaps the user added, not the ones inside them
+            listed = (await api.get("/v1/sitemaps")).json()
+            assert [item["id"] for item in listed] == [sitemap.id, unconfirmed.id]
+            assert listed[1]["next_check_at"] is None  # not confirmed yet
     finally:
         app.dependency_overrides.clear()
 

@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from sqlalchemy import select
 
 from app.api.deps import CrawlerClientDep, SessionDep, SettingsDep
 from app.crawler.ratelimit import HostRateLimiter
@@ -42,6 +43,17 @@ class SitemapState(BaseModel):
     last_checked_at: datetime | None
     next_check_at: datetime | None  # None until its first crawl is confirmed
     last_error: str | None
+
+
+@router.get("")
+async def list_sitemaps(session: SessionDep) -> list[SitemapState]:
+    """The sitemaps you added, oldest first, each with its schedule, its retention rule and how
+    its last check went. The sitemaps inside them are checked with them, so they aren't
+    listed; their counts are in the preview."""
+    sitemaps = await session.scalars(
+        select(Sitemap).where(Sitemap.parent_id.is_(None)).order_by(Sitemap.id)
+    )
+    return [SitemapState.model_validate(sitemap) for sitemap in sitemaps]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

@@ -9,7 +9,7 @@ Every screen sits behind the sign-in, as the brief requires, and talks to the Br
 import streamlit as st
 
 from ui.passwords import sign_in, users
-from ui.screens import dashboard
+from ui.screens import chat, dashboard, experts, history, sources
 
 st.set_page_config(page_title="Knowledge Brain", layout="wide")
 
@@ -50,6 +50,17 @@ pages = [
         icon=":material/monitoring:",
         url_path="dashboard",
         default=True,
+    ),
+    st.Page(sources.render, title="Sources", icon=":material/travel_explore:", url_path="sources"),
+    st.Page(chat.render, title="Chat", icon=":material/chat:", url_path="chat"),
+    st.Page(
+        experts.render, title="Expert queue", icon=":material/support_agent:", url_path="experts"
+    ),
+    st.Page(
+        history.render,
+        title="Change history and archive",
+        icon=":material/history:",
+        url_path="history",
     ),
 ]
 st.navigation(pages).run()

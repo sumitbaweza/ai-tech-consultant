@@ -1,13 +1,12 @@
 """Progress and dashboard: test 2's numbers for the whole knowledge base, and the latest run
 with its progress, speed, time left and what it found. They refresh every few seconds."""
 
-from datetime import datetime
-
 import streamlit as st
 
 from app.models import RunKind
 from app.progress import Progress, Stats
 from ui import api
+from ui.common import when
 
 REFRESH_SECONDS = 2
 
@@ -74,7 +73,3 @@ def latest_run(run: Progress) -> None:
     ]
     for column, (label, count) in zip(st.columns(len(counts)), counts, strict=True):
         column.metric(label, f"{count:,}")
-
-
-def when(moment: datetime | None) -> str:
-    return f"{moment:%b %d, %H:%M} UTC" if moment else "never"
