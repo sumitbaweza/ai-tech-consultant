@@ -192,6 +192,24 @@ async def test_permanent_redirect_queues_the_new_address(db_session: AsyncSessio
     assert run is not None and (run.total_pages, run.status) == (2, RunStatus.RUNNING)
 
 
+async def test_a_redirect_to_a_known_page_fetches_it_again(db_session: AsyncSession) -> None:
+    page = await queued_page(db_session)
+    known = Page(url=f"{URL}-renamed", kind=PageKind.ARTICLE, status=PageStatus.ACTIVE)
+    db_session.add(known)
+    await db_session.commit()
+
+    await process_page(
+        db_session, FakeFetcher(Fetched(url=URL, status=301, location=known.url)), page
+    )
+
+    assert (page.status, page.redirected_to_id) == (PageStatus.REDIRECTED, known.id)
+    # It stays active, so searchable, while it waits to be fetched again in the same run
+    assert (known.status, known.run_id) == (PageStatus.ACTIVE, page.run_id)
+    assert known.fetch_requested_at is not None
+    run = await db_session.get(IngestionRun, page.run_id, populate_existing=True)
+    assert run is not None and run.total_pages == 2
+
+
 async def test_404_marks_the_page_not_found(db_session: AsyncSession) -> None:
     page = await queued_page(db_session)
 

@@ -60,6 +60,12 @@ class FoundSitemap:
     children: list[str] = field(default_factory=list[str])
     error: str | None = None
 
+    @property
+    def was_read(self) -> bool:
+        """Whether the file itself was fetched and parsed. An index nested too deep was, even
+        though the sitemaps it lists weren't."""
+        return self.error is None or self.is_index
+
 
 def guess_kind(url: str) -> PageKind:
     return PageKind.LISTING if LISTING_PATH.search(urlsplit(url).path) else PageKind.ARTICLE

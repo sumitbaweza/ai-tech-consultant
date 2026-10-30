@@ -102,13 +102,18 @@ async def save_discovery(
     for sitemap in found:
         values: dict[str, Any] = {
             "parent_id": sitemap_ids.get(sitemap.parent_url or ""),
-            "is_index": sitemap.is_index,
             "schedule": schedule,
             "retention": retention,
-            "entry_count": len(sitemap.children if sitemap.is_index else sitemap.pages),
-            "last_checked_at": now,
             "last_error": sitemap.error,
         }
+        if sitemap.was_read:
+            # A sitemap that couldn't be read keeps the counts from the last time it was, so
+            # one failed fetch during a scheduled check doesn't empty the totals
+            values |= {
+                "is_index": sitemap.is_index,
+                "entry_count": len(sitemap.children if sitemap.is_index else sitemap.pages),
+                "last_checked_at": now,
+            }
         upsert = (
             insert(Sitemap)
             .values(url=sitemap.url, **values)

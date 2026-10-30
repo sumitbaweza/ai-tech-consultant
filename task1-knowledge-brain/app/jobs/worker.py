@@ -1,13 +1,17 @@
 """The crawl worker: takes queued pages from Postgres and fetches them politely.
 
-The brain-worker container runs `python -m app.jobs.worker`. Its CONCURRENCY tasks share one
-HTTP client, one rate limiter and one robots.txt cache, so together they still send at most
-one request per second to the help center.
+The brain-worker container runs `python -m app.jobs.worker`. Its CONCURRENCY crawl tasks and
+its sitemap check task share one HTTP client, one rate limiter and one robots.txt cache, so
+together they still send at most one request per second to the help center.
 
 The queue is the pages table itself. A page is queued while fetch_requested_at is set, and a
 worker claims it by stamping claimed_at. A claim older than STALE_CLAIM means its worker died,
 so another worker takes the page over. That is how a stopped crawl resumes: start the worker
 again, and it carries on with whatever is still queued.
+
+The check task reads each sitemap again when its schedule says so, and queues its pages again
+(app/freshness.py). Once their API keys are set, two more tasks describe new screenshots and
+embed changed pages.
 """
 
 import asyncio
@@ -17,6 +21,7 @@ import signal
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
+import httpx2
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -29,6 +34,7 @@ from app.crawler.ratelimit import HostRateLimiter
 from app.crawler.robots import RobotsRules
 from app.crawler.sitemap import guess_kind
 from app.db import SessionFactory
+from app.freshness import check_sitemap, claim_due_sitemap
 from app.llm import Claude, get_claude
 from app.models import Image, IngestionRun, Page, PageKind, PageStatus, PageVersion, RunStatus
 from app.rag.embed import Embedder, get_voyage
@@ -40,6 +46,7 @@ CONCURRENCY = 2
 STALE_CLAIM = timedelta(minutes=5)
 MAX_ATTEMPTS = 3  # failed fetches in a row before the worker gives up on a page
 IDLE_SECONDS = 5.0  # how long to wait before looking again when the queue is empty
+CHECK_IDLE_SECONDS = 60.0  # how often the check task looks for sitemaps due a check
 IMAGES_IDLE_SECONDS = 60.0  # how often the screenshot task looks for work and finished batches
 INDEX_IDLE_SECONDS = 30.0  # how often the index task looks for changed pages and new screenshots
 FAILURE_PAUSE_SECONDS = 600.0
@@ -198,26 +205,25 @@ async def _replace_images(session: AsyncSession, page_id: int, images: list[Imag
 
 
 async def _record_move(session: AsyncSession, page: Page, new_url: str) -> None:
-    """A permanent redirect: the old page leaves search, and the new address is queued."""
-    target_id = await session.scalar(select(Page.id).where(Page.url == new_url))
-    if target_id is None:
-        target = Page(
-            url=new_url,
-            kind=guess_kind(new_url),
-            status=PageStatus.PENDING,
-            fetch_requested_at=datetime.now(UTC),
-            run_id=page.run_id,
-        )
+    """A permanent redirect: the old page leaves search, and the new address is fetched. A
+    destination already in the knowledge base is fetched again too, so it's indexed again if it
+    changed."""
+    target = await session.scalar(select(Page).where(Page.url == new_url))
+    if target is None:
+        target = Page(url=new_url, kind=guess_kind(new_url), status=PageStatus.PENDING)
         session.add(target)
-        await session.flush()  # gives the new page its id
-        target_id = target.id
+    # A destination already in the queue gets fetched anyway; an archived one stays archived
+    if target.fetch_requested_at is None and target.status != PageStatus.ARCHIVED:
+        target.fetch_requested_at = datetime.now(UTC)
+        target.run_id = page.run_id
         if page.run_id is not None:  # the run now has one more page to fetch
             await session.execute(
                 update(IngestionRun)
                 .where(IngestionRun.id == page.run_id)
                 .values(total_pages=IngestionRun.total_pages + 1)
             )
-    page.redirected_to_id = target_id
+    await session.flush()  # gives a new destination its id
+    page.redirected_to_id = target.id
     page.status = PageStatus.REDIRECTED
     _done(page)
 
@@ -274,6 +280,31 @@ async def crawl(
                 # One bad page mustn't stop the crawl. Its claim expires, so it's retried later.
                 logger.exception("Failed on %s", page.url)
                 await session.rollback()
+
+
+async def check_sitemaps(
+    session_factory: async_sessionmaker[AsyncSession],
+    client: httpx2.AsyncClient,
+    robots: RobotsRules,
+    limiter: HostRateLimiter,
+    stop: asyncio.Event,
+) -> None:
+    """The check task: check each sitemap whose scheduled check is due, then look again in a
+    minute."""
+    while not stop.is_set():
+        try:
+            async with session_factory() as session:
+                sitemap = await claim_due_sitemap(session)
+                if sitemap is not None:
+                    await check_sitemap(session, sitemap, client, robots, limiter)
+        except Exception:
+            # The claim already moved that sitemap's check an hour ahead, so it isn't retried
+            # over and over
+            logger.exception("Checking a sitemap failed; looking again in 10 minutes")
+            await _pause(stop, FAILURE_PAUSE_SECONDS)
+            continue
+        if sitemap is None:
+            await _pause(stop, CHECK_IDLE_SECONDS)
 
 
 async def describe_images(
@@ -337,6 +368,7 @@ async def main() -> None:
         robots = RobotsRules(client, settings.crawler_user_agent, limiter)
         fetcher = Fetcher(client, limiter, robots)
         tasks = [crawl(SessionFactory, fetcher, stop) for _ in range(CONCURRENCY)]
+        tasks.append(check_sitemaps(SessionFactory, client, robots, limiter, stop))
         if settings.anthropic_api_key.get_secret_value():
             tasks.append(describe_images(SessionFactory, fetcher, get_claude(), stop))
         else:
