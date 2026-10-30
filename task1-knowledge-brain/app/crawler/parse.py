@@ -6,6 +6,7 @@ Built for Freshdesk help centers like this one, with fallbacks for other sites:
 - The article body becomes Markdown, without the permalink line Freshdesk puts at its top.
 - Each screenshot becomes a "[Screenshot N: alt text]" marker in the Markdown, plus an ImageRef
   holding its address, alt text and the text around it, which Step 6 gives Claude as context.
+- Each video becomes a "[Video]" marker: its addresses would only add noise to search.
 
 The content hash covers the title, the words and the image addresses. It changes when the page
 really changes, and not when only whitespace or an image's cache-busting ?query does.
@@ -61,6 +62,8 @@ def parse_page(html: bytes | str, url: str) -> ParsedPage:
             element.decompose()
     if heading := body.select_one("h1"):
         heading.decompose()  # the title is stored on its own
+    for video in body.select("video"):
+        video.replace_with(NavigableString("[Video]"))
     images = _swap_images_for_markers(body, url)
     markdown = _to_markdown(body)
     return ParsedPage(

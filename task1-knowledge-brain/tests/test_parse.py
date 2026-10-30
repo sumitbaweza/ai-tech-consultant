@@ -73,3 +73,18 @@ def test_page_without_an_article_body_is_a_listing() -> None:
     page = parse_page(html, "https://help.example/support/solutions/folders/12")
 
     assert (page.is_article, page.title, page.markdown, page.images) == (False, "Emails", "", [])
+
+
+def test_a_video_becomes_a_marker_without_its_addresses() -> None:
+    html = (
+        "<article id='article-body'><p>Watch how to add a widget:</p>"
+        "<video poster='https://media.example/add-widget-poster.jpg' controls>"
+        "<source src='https://media.example/add-widget.mp4' type='video/mp4'></video>"
+        "<p>Then save.</p></article>"
+    )
+
+    page = parse_page(html, URL)
+
+    assert "[Video]" in page.markdown
+    assert "media.example" not in page.markdown
+    assert page.images == []  # the poster frame isn't a screenshot to describe
