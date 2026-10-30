@@ -3,6 +3,7 @@
     uv run python -m evals.run            # every case; needs both API keys
     uv run python -m evals.run --check    # check the case file against the crawl: no keys, no cost
     uv run python -m evals.run --only how-to-rename-a-word-everywhere
+    uv run python -m evals.run --expert-replay   # ask each expert answer's question again
 
 A case passes when the answer does what its kind requires:
 - how_to and follow_up: answered, citing an expected article
@@ -16,6 +17,11 @@ Also measured for each case: whether an expected article is among the first TOP_
 search returns, the latency of ask(), and its cost, added up from the llm_calls rows tagged
 with the case's run tag. A table is printed, and the results are saved to
 evals/results/<run id>.json.
+
+The expert replay measures what the Brain learned from its experts. Each expert answer is a
+question the Brain once failed, so the replay asks each one again and counts how many are
+answered now, and how many from the expert's answer. Its results go to
+evals/results/expert-replay-<run id>.json.
 """
 
 import argparse
@@ -93,6 +99,27 @@ class Report(BaseModel):
     results: list[CaseResult]
 
 
+class ReplayResult(BaseModel):
+    page_id: int  # the expert answer's page
+    question: str
+    outcome: Outcome
+    cites_expert: bool  # answered from the expert's answer
+    latency_ms: int
+    cost_usd: float
+    claude_calls: int
+
+
+class ReplayReport(BaseModel):
+    run_id: str
+    started_at: datetime
+    answered: Tally  # once-failed questions that are answered now
+    cites_expert: Tally  # the ones answered from the expert's answer
+    latency_p50_ms: int
+    latency_p95_ms: int
+    cost_usd: float
+    results: list[ReplayResult]
+
+
 # --- Checking the case file against the crawl -----------------------------------------------
 
 
@@ -152,15 +179,7 @@ async def run_case(
         latency_ms = round((time.perf_counter() - started) * 1000)
         top = await top_articles(session, embedder, result.standalone_question)
         await session.rollback()
-
-        # The ledger saved each call in its own transaction, so the rollback kept them
-        cost, calls = (
-            await session.execute(
-                select(func.coalesce(func.sum(LLMCall.cost_usd), 0), func.count()).where(
-                    LLMCall.run_tag == run_tag
-                )
-            )
-        ).one()
+        cost, calls = await tagged_cost(session, run_tag)
 
     failures = score(case, result)
     expected = set(case.expected_urls)
@@ -177,9 +196,22 @@ async def run_case(
         top_articles=top,
         in_top_k=bool(expected & set(top)) if expected else None,
         latency_ms=latency_ms,
-        cost_usd=float(cost),
+        cost_usd=cost,
         claude_calls=calls,
     )
+
+
+async def tagged_cost(session: AsyncSession, run_tag: str) -> tuple[float, int]:
+    """What the Claude calls tagged with run_tag cost, and how many there were. The ledger saves
+    each call in its own transaction, so a rolled-back case keeps them."""
+    cost, calls = (
+        await session.execute(
+            select(func.coalesce(func.sum(LLMCall.cost_usd), 0), func.count()).where(
+                LLMCall.run_tag == run_tag
+            )
+        )
+    ).one()
+    return float(cost), calls
 
 
 async def top_articles(session: AsyncSession, embedder: Embedder, question: str) -> list[str]:
@@ -278,6 +310,123 @@ def print_summary(report: Report) -> None:
     print(f"Models: {models or 'none'}")
 
 
+# --- The expert replay ----------------------------------------------------------------------
+
+
+async def replay_experts(
+    session_factory: async_sessionmaker[AsyncSession],
+    claude: Claude,
+    embedder: Embedder,
+    run_id: str,
+) -> list[ReplayResult]:
+    """Ask the question of each expert answer in the knowledge base again, one at a time."""
+    async with session_factory() as session:
+        pages = (
+            await session.scalars(
+                select(Page)
+                .where(Page.kind == PageKind.EXPERT, Page.status == PageStatus.ACTIVE)
+                .order_by(Page.id)
+            )
+        ).all()
+
+    results: list[ReplayResult] = []
+    for page in pages:
+        run_tag = f"replay:{run_id}:{page.id}"
+        question = page.title or ""  # an expert page's title is its question
+        async with session_factory() as session:
+            started = time.perf_counter()
+            result = await ask(session, claude, embedder, question, [], run_tag=run_tag)
+            latency_ms = round((time.perf_counter() - started) * 1000)
+            cost, calls = await tagged_cost(session, run_tag)
+        replayed = ReplayResult(
+            page_id=page.id,
+            question=question,
+            outcome=result.outcome,
+            cites_expert=any(citation.page_id == page.id for citation in result.citations),
+            latency_ms=latency_ms,
+            cost_usd=cost,
+            claude_calls=calls,
+        )
+        print(replay_line(replayed))
+        results.append(replayed)
+    return results
+
+
+def replay_line(result: ReplayResult) -> str:
+    verdict = (
+        "EXPERT"
+        if result.cites_expert
+        else "ANSWERED"
+        if result.outcome == Outcome.ANSWERED
+        else "MISSED"
+    )
+    return (
+        f"{verdict:<8}  {result.outcome:<17}  {result.latency_ms / 1000:5.1f} s  "
+        f"${result.cost_usd:.4f}  {result.question}"
+    )
+
+
+async def expert_replay(claude: Claude, embedder: Embedder) -> int:
+    async with SessionFactory() as session:
+        waiting = await session.scalar(
+            select(func.count())
+            .select_from(Page)
+            .where(
+                Page.kind == PageKind.EXPERT,
+                Page.status == PageStatus.ACTIVE,
+                Page.embedded_hash.is_distinct_from(Page.content_hash),
+            )
+        )
+    if waiting:
+        print(f"Expert answers not embedded yet: {waiting}. The worker embeds them in a minute.")
+        return 1
+
+    started_at = datetime.now(UTC)
+    run_id = started_at.strftime("%Y%m%d-%H%M%S")
+    print(f"\nExpert replay {run_id}\n")
+    results = await replay_experts(SessionFactory, claude, embedder, run_id)
+    if not results:
+        print("There are no expert answers in the knowledge base yet")
+        return 0
+
+    latencies = [result.latency_ms for result in results]
+    report = ReplayReport(
+        run_id=run_id,
+        started_at=started_at,
+        answered=tally([result.outcome == Outcome.ANSWERED for result in results]),
+        cites_expert=tally([result.cites_expert for result in results]),
+        latency_p50_ms=percentile(latencies, 0.50),
+        latency_p95_ms=percentile(latencies, 0.95),
+        cost_usd=round(sum(result.cost_usd for result in results), 6),
+        results=results,
+    )
+    RESULTS_DIR.mkdir(exist_ok=True)
+    saved = RESULTS_DIR / f"expert-replay-{run_id}.json"
+    saved.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+    print(
+        f"\nOnce-failed questions answered now: {report.answered} "
+        f"({report.cites_expert} from the expert's answer)"
+    )
+    p50, p95 = report.latency_p50_ms / 1000, report.latency_p95_ms / 1000
+    print(
+        f"Latency of ask(): p50 {p50:.1f} s, p95 {p95:.1f} s. Claude cost: ${report.cost_usd:.4f}"
+    )
+    print(f"\nSaved evals/results/{saved.name}")
+    return 0
+
+
+# --- The command line -----------------------------------------------------------------------
+
+
+def real_clients() -> tuple[Claude, Embedder] | None:
+    """Claude and Voyage, or None after saying that a key is missing."""
+    embedder = get_voyage()
+    if embedder is None or not get_settings().anthropic_api_key.get_secret_value():
+        print("This needs ANTHROPIC_API_KEY and VOYAGE_API_KEY in .env")
+        return None
+    return get_claude(), embedder
+
+
 async def check(case_file: CaseFile, cases_path: Path) -> CheckReport:
     async with SessionFactory() as session:
         report = await check_cases(session, case_file)
@@ -326,9 +475,19 @@ async def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--only", nargs="+", default=[], metavar="ID", help="run only these cases")
     parser.add_argument("--cases", type=Path, default=CASES_FILE, help="another case file")
+    parser.add_argument(
+        "--expert-replay", action="store_true", help="ask each expert answer's question again"
+    )
     args = parser.parse_args(argv)
     cases_path: Path = args.cases
     only: list[str] = args.only
+
+    if args.expert_replay:
+        try:
+            clients = real_clients()
+            return 1 if clients is None else await expert_replay(*clients)
+        finally:
+            await engine.dispose()
 
     try:
         case_file = load_cases(cases_path)
@@ -346,14 +505,11 @@ async def main(argv: list[str] | None = None) -> int:
             return 1
         if args.check:
             return 0
-        embedder = get_voyage()
-        if embedder is None or not get_settings().anthropic_api_key.get_secret_value():
-            print("A full run needs ANTHROPIC_API_KEY and VOYAGE_API_KEY in .env")
-            return 1
-        if report.not_indexed:
+        clients = real_clients()
+        if clients is None or report.not_indexed:
             return 1
         cases = [case for case in case_file.cases if not only or case.id in only]
-        await run(cases, cases_path, get_claude(), embedder)
+        await run(cases, cases_path, *clients)
         return 0
     finally:
         await engine.dispose()  # close the pooled connections before the event loop closes

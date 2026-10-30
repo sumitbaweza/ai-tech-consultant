@@ -18,7 +18,7 @@ from app.api.deps import require_claude
 from app.api.main import app
 from app.db import get_session
 from app.llm import load_prompt
-from app.models import ChunkKind, Page
+from app.models import ChunkKind, Page, PageKind
 from app.rag.answer import (
     DONT_KNOW,
     FAILED,
@@ -96,6 +96,7 @@ def test_sources_and_the_question_go_in_tags() -> None:
     hit = SearchHit(
         chunk_id=7,
         page_id=1,
+        page_kind=PageKind.ARTICLE,
         kind=ChunkKind.IMAGE,
         title="Text Labels",
         url=f"{SITE}/1",
@@ -136,7 +137,11 @@ async def test_an_answer_keeps_only_citations_of_real_sources(db_session: AsyncS
 
     assert (result.outcome, result.answered, result.confidence) == (Outcome.ANSWERED, True, 0.9)
     [citation] = result.citations  # S9 was made up, and S1 is listed once
-    assert (citation.source_id, citation.url) == ("S1", f"{SITE}/1-text-labels")
+    assert (citation.source_id, citation.origin, citation.url) == (
+        "S1",
+        "article",
+        f"{SITE}/1-text-labels",
+    )
     assert citation.snippet == "Text Labels let you rename the words visitors see."
     assert '<source id="S1"' in api.answer_inputs[0]
 

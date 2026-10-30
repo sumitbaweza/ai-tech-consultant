@@ -1,6 +1,6 @@
 # Start the system with `make up`. Windows has no `make` built in:
 # paste a target's command lines into PowerShell instead.
-.PHONY: up down logs ps psql test lint format eval eval-check
+.PHONY: up down logs ps psql test lint format eval eval-check eval-experts
 
 # Build and start every service in the background
 up:
@@ -44,3 +44,7 @@ eval-check:
 # Run the Brain's eval cases through the real answer path. Needs both API keys in .env.
 eval:
 	uv run --directory task1-knowledge-brain python -m evals.run
+
+# Ask each expert answer's question again: how much the Brain learned. Needs both API keys.
+eval-experts:
+	uv run --directory task1-knowledge-brain python -m evals.run --expert-replay

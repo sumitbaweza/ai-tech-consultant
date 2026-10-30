@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import ColumnElement, Float, func, literal, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Chunk, ChunkKind, Image, Page, PageStatus
+from app.models import Chunk, ChunkKind, Image, Page, PageKind, PageStatus
 
 CANDIDATES = 40
 RRF_K = 60  # the constant from the paper that introduced RRF: it softens the gap between ranks
@@ -22,6 +22,7 @@ RRF_K = 60  # the constant from the paper that introduced RRF: it softens the ga
 class SearchHit(BaseModel):
     chunk_id: int
     page_id: int
+    page_kind: PageKind  # an article, or an expert's answer from the expert queue
     kind: ChunkKind
     title: str | None
     url: str
@@ -93,6 +94,7 @@ async def search(
             fused.c.score,
             fused.c.similarity,
             Chunk.page_id,
+            Page.kind.label("page_kind"),
             Chunk.kind,
             Chunk.content,
             Page.title,
@@ -109,6 +111,7 @@ async def search(
         SearchHit(
             chunk_id=row.chunk_id,
             page_id=row.page_id,
+            page_kind=row.page_kind,
             kind=row.kind,
             title=row.title,
             url=row.url,

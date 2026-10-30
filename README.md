@@ -25,6 +25,7 @@ Windows has no `make` built in, so here is each target without it:
 | `make lint` | `uv run --directory task1-knowledge-brain ruff check .`, then `ruff format --check .`, then `pyright` the same way |
 | `make eval-check` | `uv run --directory task1-knowledge-brain python -m evals.run --check` |
 | `make eval` | `uv run --directory task1-knowledge-brain python -m evals.run` |
+| `make eval-experts` | `uv run --directory task1-knowledge-brain python -m evals.run --expert-replay` |
 
 Tests, lint and evals run on your machine and need [uv](https://docs.astral.sh/uv/). `make eval-check` checks the eval cases against the crawled pages for free; `make eval` runs them through the real answer path, needs both API keys, and saves the results in `task1-knowledge-brain/evals/results/`.
 

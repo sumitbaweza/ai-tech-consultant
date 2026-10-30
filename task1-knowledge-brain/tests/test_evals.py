@@ -14,8 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.llm import DatabaseLedger
 from app.models import Page, PageKind, PageStatus
 from app.rag.answer import AskResult, Citation, Outcome
+from app.rag.index import index_pending
 from evals.cases import CaseFile, EvalCase, load_cases
-from evals.run import check_cases, percentile, run_case, score
+from evals.run import check_cases, percentile, replay_experts, run_case, score
 from tests.fakes import make_claude
 from tests.test_answer import FakeClaude, FakeEmbedder, draft
 from tests.test_search import SITE, help_center
@@ -34,6 +35,7 @@ def result(
     citations = [
         Citation(
             source_id=f"S{number}",
+            origin="article",
             chunk_id=number,
             page_id=number,
             title=None,
@@ -214,3 +216,34 @@ async def test_archiving_for_a_case_is_never_committed(
     async with session_factory() as session:
         status = await session.scalar(select(Page.status).where(Page.url == LABELS))
     assert status == PageStatus.ACTIVE
+
+
+@pytest.mark.db
+async def test_the_expert_replay_asks_each_expert_answers_question_again(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        await help_center(session)
+        session.add(
+            Page(
+                url="expert-answer:1",
+                kind=PageKind.EXPERT,
+                status=PageStatus.ACTIVE,
+                title="What's the weather in Berlin?",
+                category="Expert answers",
+                content_md="We don't cover the weather: check a weather service.",
+                content_hash="h1",
+            )
+        )
+        await session.commit()
+        await index_pending(session, FakeEmbedder(5))  # the expert answer points direction 5
+    api = FakeClaude(draft("Check a weather service.", ["S1"]))
+    claude = make_claude(api, ledger=DatabaseLedger(session_factory))
+
+    [replayed] = await replay_experts(session_factory, claude, FakeEmbedder(5), "t3")
+
+    assert (replayed.outcome, replayed.cites_expert, replayed.claude_calls) == (
+        Outcome.ANSWERED,
+        True,
+        1,
+    )

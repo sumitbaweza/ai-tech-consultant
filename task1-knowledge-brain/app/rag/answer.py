@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.llm import Claude, LLMError
+from app.models import PageKind
 from app.rag.embed import Embedder, EmbeddingError
 from app.rag.search import SearchHit, search
 
@@ -70,8 +71,14 @@ class AnswerDraft(BaseModel):
     confidence: float = Field(ge=0, le=1)
 
 
+# Where a source's text comes from: a help-center article, or a human expert's answer saved
+# from the expert queue
+Origin = Literal["article", "expert"]
+
+
 class Citation(BaseModel):
     source_id: str
+    origin: Origin  # "expert": show it as an expert answer, not an article link
     chunk_id: int
     page_id: int
     title: str | None
@@ -83,6 +90,7 @@ class Citation(BaseModel):
 class Source(BaseModel):
     """A chunk that search found for the question, cited or not."""
 
+    origin: Origin
     chunk_id: int
     page_id: int
     title: str | None
@@ -201,6 +209,7 @@ def _citation(source_id: str, hit: SearchHit) -> Citation:
     text = hit.content.split("\n\n", 1)[-1]
     return Citation(
         source_id=source_id,
+        origin=_origin(hit),
         chunk_id=hit.chunk_id,
         page_id=hit.page_id,
         title=hit.title,
@@ -212,6 +221,7 @@ def _citation(source_id: str, hit: SearchHit) -> Citation:
 
 def _source(hit: SearchHit) -> Source:
     return Source(
+        origin=_origin(hit),
         chunk_id=hit.chunk_id,
         page_id=hit.page_id,
         title=hit.title,
@@ -219,6 +229,10 @@ def _source(hit: SearchHit) -> Source:
         similarity=hit.similarity,
         score=hit.score,
     )
+
+
+def _origin(hit: SearchHit) -> Origin:
+    return "expert" if hit.page_kind == PageKind.EXPERT else "article"
 
 
 def _unanswered(

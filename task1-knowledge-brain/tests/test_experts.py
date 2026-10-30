@@ -1,11 +1,13 @@
 """The expert queue: unanswered questions become tasks, a repeat counts on its task, a thumbs
-down flags a wrong answer, and a dismissed question stays out of the queue.
+down flags a wrong answer, a dismissed question stays out of the queue, and an expert's answer
+becomes knowledge that /v1/ask cites.
 
 The database tests ask through the API, against the small help center from test_search, a
 fake Claude and an embedder that points every question one way.
 """
 
 from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 import pytest
@@ -16,6 +18,7 @@ from app.api.main import app
 from app.db import get_session
 from app.experts import question_key
 from app.rag.embed import get_voyage
+from app.rag.index import index_pending
 from tests.fakes import make_claude
 from tests.test_answer import FakeClaude, FakeEmbedder, draft
 from tests.test_search import help_center
@@ -141,4 +144,85 @@ async def test_a_dismissed_question_stays_out_of_the_queue(api: httpx.AsyncClien
     dismiss_again = await api.post(f"/v1/expert-tasks/{task_id}/dismiss", json={"expert": "Sam"})
     assert dismiss_again.status_code == 409
     unknown = await api.post("/v1/expert-tasks/9999/dismiss", json={"expert": "Sam"})
+    assert unknown.status_code == 404
+
+
+# --- Answers flow back into the knowledge base ------------------------------------------------
+
+
+async def answer(api: httpx.AsyncClient, task_id: int, text: str) -> dict[str, Any]:
+    reply = await api.post(
+        f"/v1/expert-tasks/{task_id}/answer", json={"answer": text, "expert": "Sam"}
+    )
+    assert reply.status_code == 200
+    return reply.json()
+
+
+async def embed_expert_answers(session_factory: async_sessionmaker[AsyncSession]) -> None:
+    """What the worker's index task does within a minute: embed new and changed pages."""
+    async with session_factory() as session:
+        await index_pending(session, FakeEmbedder(NOTHING_CLOSE))
+
+
+@pytest.mark.db
+async def test_an_answer_becomes_knowledge_that_ask_cites_as_an_expert_answer(
+    api: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    brain(FakeClaude(draft("Check a weather service.", ["S1"])), NOTHING_CLOSE)
+    task_id = (await api.post("/v1/ask", json={"question": WEATHER})).json()["expert_task_id"]
+
+    task = await answer(api, task_id, "We don't cover the weather: check a weather service.")
+    await embed_expert_answers(session_factory)
+    asked_again = (await api.post("/v1/ask", json={"question": WEATHER})).json()
+
+    assert (task["status"], task["answered_by"]) == ("answered", "Sam")
+    [citation] = asked_again["citations"]
+    assert (asked_again["outcome"], citation["origin"], citation["page_id"]) == (
+        "answered",
+        "expert",
+        task["answer_page_id"],
+    )
+    page = (await api.get(f"/v1/articles/{task['answer_page_id']}")).json()
+    assert (page["kind"], page["status"], page["title"]) == ("expert", "active", WEATHER)
+
+
+@pytest.mark.db
+async def test_one_question_keeps_one_expert_page_with_its_history(
+    api: httpx.AsyncClient,
+) -> None:
+    brain(FakeClaude(), NOTHING_CLOSE)
+    first_task = (await api.post("/v1/ask", json={"question": WEATHER})).json()["expert_task_id"]
+    first = await answer(api, first_task, "Check a weather service.")
+    # Asked again before the answer is embedded: a new task, whose answer updates the same page
+    second_task = (await api.post("/v1/ask", json={"question": WEATHER})).json()["expert_task_id"]
+
+    second = await answer(api, second_task, "We don't cover the weather: check a weather service.")
+
+    assert second_task != first_task
+    assert second["answer_page_id"] == first["answer_page_id"]
+    history = (await api.get(f"/v1/articles/{first['answer_page_id']}/history")).json()
+    assert len(history["versions"]) == 2
+
+
+@pytest.mark.db
+async def test_an_archived_answer_leaves_answers_until_it_is_answered_again(
+    api: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    brain(FakeClaude(draft("Check a weather service.", ["S1"])), NOTHING_CLOSE)
+    task_id = (await api.post("/v1/ask", json={"question": WEATHER})).json()["expert_task_id"]
+    await answer(api, task_id, "Check a weather service.")
+    await embed_expert_answers(session_factory)
+
+    archived = await api.post(f"/v1/expert-tasks/{task_id}/archive-answer")
+    without = (await api.post("/v1/ask", json={"question": WEATHER})).json()
+    await answer(api, task_id, "Check a weather service.")
+    with_it_again = (await api.post("/v1/ask", json={"question": WEATHER})).json()
+
+    assert archived.status_code == 200
+    assert without["outcome"] == "low_retrieval"  # its only close source is archived
+    assert with_it_again["outcome"] == "answered"  # the same text: no new embedding needed
+    unanswered = without["expert_task_id"]
+    no_answer = await api.post(f"/v1/expert-tasks/{unanswered}/archive-answer")
+    assert no_answer.status_code == 409
+    unknown = await api.post("/v1/expert-tasks/9999/answer", json={"answer": "x", "expert": "Sam"})
     assert unknown.status_code == 404

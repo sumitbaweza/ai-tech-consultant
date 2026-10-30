@@ -7,7 +7,15 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.deps import SessionDep
-from app.experts import TaskClosed, dismiss_task, list_tasks, open_task
+from app.experts import (
+    NoAnswer,
+    TaskClosed,
+    answer_task,
+    archive_answer,
+    dismiss_task,
+    list_tasks,
+    open_task,
+)
 from app.models import ExpertReason, ExpertStatus
 from app.rag.answer import ChatTurn, Source
 
@@ -30,6 +38,8 @@ class ExpertTaskView(BaseModel):
     answer: str | None
     answered_by: str | None  # who answered or dismissed it
     answered_at: datetime | None
+    # The expert answer's page: GET /v1/articles/{id} shows it, and /history its versions
+    answer_page_id: int | None
 
 
 class ExpertTaskList(BaseModel):
@@ -49,6 +59,11 @@ class FlagAnswer(BaseModel):
 
 class Dismiss(BaseModel):
     expert: str = Field(min_length=1, max_length=200, description="Who dismissed it")
+
+
+class Answer(BaseModel):
+    answer: str = Field(min_length=1, max_length=10_000, description="The answer, in Markdown")
+    expert: str = Field(min_length=1, max_length=200, description="Who answered it")
 
 
 @router.get("")
@@ -89,5 +104,30 @@ async def dismiss(task_id: int, body: Dismiss, session: SessionDep) -> ExpertTas
     except LookupError as error:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from error
     except TaskClosed as error:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
+    return ExpertTaskView.model_validate(task)
+
+
+@router.post("/{task_id}/answer")
+async def answer(task_id: int, body: Answer, session: SessionDep) -> ExpertTaskView:
+    """Answer the question. The answer becomes knowledge: the worker embeds it within a minute,
+    and from then on search finds it and /v1/ask cites it, with `origin` "expert". Answering
+    again replaces the answer, and the page's history keeps every version."""
+    try:
+        task = await answer_task(session, task_id, body.answer, body.expert)
+    except LookupError as error:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from error
+    return ExpertTaskView.model_validate(task)
+
+
+@router.post("/{task_id}/archive-answer")
+async def archive(task_id: int, session: SessionDep) -> ExpertTaskView:
+    """Take the answer out of search and answers, as when it turned out wrong. Its page is
+    archived, never deleted, and answering the task again brings it back."""
+    try:
+        task = await archive_answer(session, task_id)
+    except LookupError as error:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from error
+    except NoAnswer as error:
         raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
     return ExpertTaskView.model_validate(task)

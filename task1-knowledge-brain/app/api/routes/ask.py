@@ -27,11 +27,13 @@ async def ask_question(
     """Answer from the help center only. `answered` is false when the help center doesn't cover
     the question, and `outcome` says why: low_retrieval (nothing close), not_in_sources (the
     closest articles don't answer it), no_valid_citation, or model_failed. Every citation
-    points at an article (and a screenshot, if that's where the answer is), and `sources` lists
-    everything search found.
+    points at an article (and a screenshot, if that's where the answer is), or, with `origin`
+    "expert", at an expert's answer from the expert queue. `sources` lists everything search
+    found.
 
     A question the help center doesn't cover goes to a human expert: `expert_task_id` is its
-    task in GET /v1/expert-tasks. A model failure doesn't, since asking again later can work."""
+    task in GET /v1/expert-tasks, and once the expert answers, the answer is used from then on.
+    A model failure doesn't go to an expert, since asking again later can work."""
     result = await ask(session, claude, voyage, body.question, body.history)
     reason = EXPERT_REASONS.get(result.outcome)
     if reason is not None:
