@@ -12,6 +12,8 @@ x-brain: &brain
     DB_HOST: postgres
     BRAIN_DB_PASSWORD: ${BRAIN_DB_PASSWORD:?Set BRAIN_DB_PASSWORD in .env}
     BRAIN_API_KEYS: ${BRAIN_API_KEYS:?Set BRAIN_API_KEYS in .env}
+    # May be empty: the API still starts, and only Claude calls fail until it's set
+    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
 
 services:
   postgres:

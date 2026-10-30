@@ -5,11 +5,13 @@ description = "Task 1, the Knowledge Brain: crawls a help center, answers questi
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.20.1",
+    "anthropic>=2.3.0",
     "asyncpg>=0.32.0",
     "fastapi>=0.162.0",
     "pgvector>=0.5.1",
     "pydantic>=2.14.2",
     "pydantic-settings>=2.16.2",
+    "pyyaml>=6.0.3",
     "sqlalchemy[asyncio]>=2.1.6",
     "uvicorn[standard]>=0.54.0",
 ]
@@ -43,4 +45,5 @@ dev = [
     "pytest>=9.2.0",
     "pytest-asyncio>=1.4.1",
     "ruff>=0.17.3",
+    "types-pyyaml>=6.0.12.20260906",
 ]

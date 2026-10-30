@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # Comma-separated keys allowed to call /v1, sent in the X-API-Key header
     brain_api_keys: SecretStr = SecretStr("")
 
+    # Claude. Empty until you add it to .env; calls fail with an auth error until then.
+    anthropic_api_key: SecretStr = SecretStr("")
+
     @property
     def database_url(self) -> URL:
         # URL.create escapes special characters in the password; an f-string would not.
