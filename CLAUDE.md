@@ -75,13 +75,13 @@ When the PDFs and these notes disagree, the PDFs win. Live, editable copy of the
 
 ## Status (Oct 30, 2026, Day 1)
 
-- The 4-day clock started on Oct 30, 2026: today is Day 1. The repo skeleton exists, and Task 1 is being built step by step.
+- The 4-day clock started on Oct 30, 2026: today is Day 1. Task 1 steps 1 to 5 are done (skeleton, Claude wrapper, sitemap discovery, polite crawler), and the first full crawl started on Day 1. Next: screenshot descriptions, chunks and embeddings with hybrid search, then `/v1/ask`.
 - Found on Day 1:
   - The sitemap is one flat `urlset` with 1,700 URLs: 1,541 articles, 145 folders, 12 categories and 2 index pages. Every URL has a `lastmod`. The code still handles nested sitemaps, because test 2 asks for it.
   - robots.txt disallows `/support/search`, `/support/login`, `/helpdesk/` (attachments allowed) and `/*/hit$`, a view-counter image in every article that the parser must skip.
   - Articles run on Freshdesk: the breadcrumb is `.breadcrumb` ("Section: Emails" > "Email Accounts") and the text is `#article-body`. Screenshots are on `s3.amazonaws.com/cdn.freshdesk.com`, about 100 KB each; newer ones have detailed alt text.
   - Folder, category and index pages are tracked but not embedded, because each article carries its own breadcrumb.
-- Machine on Day 1: Docker Desktop, WSL2 and `uv` were missing and are being installed. System Python is 3.11; the Python tasks use 3.12 through uv. `pnpm` needs `npm install -g corepack@latest` and `corepack enable pnpm` before Day 2.
+- Machine: Docker Desktop 29.9 with WSL2, and uv 0.13, were installed on Day 1. System Python is 3.11; the Python tasks use 3.12 through uv. Reach Postgres from Windows on `127.0.0.1`, not `localhost`: localhost tries IPv6 first, and each refused attempt costs about 2 seconds. `pnpm` needs `npm install -g corepack@latest` and `corepack enable pnpm` before Day 2.
 - Open questions:
   - TypeScript or Python for Task 2? TypeScript earns a 10% bonus.
   - Is `test 2.pdf` part of the same assignment or a variant?
