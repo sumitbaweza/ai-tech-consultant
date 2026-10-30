@@ -14,6 +14,8 @@ x-brain: &brain
     BRAIN_API_KEYS: ${BRAIN_API_KEYS:?Set BRAIN_API_KEYS in .env}
     # May be empty: the API still starts, and only Claude calls fail until it's set
     ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    # May be empty: nothing gets embedded, and search falls back to exact words
+    VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
 
 services:
   postgres:

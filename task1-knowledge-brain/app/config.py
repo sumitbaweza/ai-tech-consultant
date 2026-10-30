@@ -33,6 +33,8 @@ class Settings(BaseSettings):
 
     # Claude. Empty until you add it to .env; calls fail with an auth error until then.
     anthropic_api_key: SecretStr = SecretStr("")
+    # Voyage AI embeddings. Without it no chunks are embedded, and search uses exact words only.
+    voyage_api_key: SecretStr = SecretStr("")
 
     # Crawler politeness: who we say we are, and the most requests per second to one host
     crawler_user_agent: str = "AITechConsultantBot/0.1 (polite help-center crawler)"

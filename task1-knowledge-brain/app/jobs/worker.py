@@ -31,6 +31,8 @@ from app.crawler.sitemap import guess_kind
 from app.db import SessionFactory
 from app.llm import Claude, get_claude
 from app.models import Image, IngestionRun, Page, PageKind, PageStatus, PageVersion, RunStatus
+from app.rag.embed import Embedder, get_voyage
+from app.rag.index import index_pending
 
 logger = logging.getLogger("brain.worker")
 
@@ -39,6 +41,7 @@ STALE_CLAIM = timedelta(minutes=5)
 MAX_ATTEMPTS = 3  # failed fetches in a row before the worker gives up on a page
 IDLE_SECONDS = 5.0  # how long to wait before looking again when the queue is empty
 IMAGES_IDLE_SECONDS = 60.0  # how often the screenshot task looks for work and finished batches
+INDEX_IDLE_SECONDS = 30.0  # how often the index task looks for changed pages and new screenshots
 FAILURE_PAUSE_SECONDS = 600.0
 
 
@@ -295,6 +298,22 @@ async def describe_images(
             await _pause(stop, IMAGES_IDLE_SECONDS)
 
 
+async def index_chunks(
+    session_factory: async_sessionmaker[AsyncSession], embedder: Embedder, stop: asyncio.Event
+) -> None:
+    """The search-index task: embed changed articles and newly described screenshots."""
+    while not stop.is_set():
+        try:
+            async with session_factory() as session:
+                indexed = await index_pending(session, embedder)
+        except Exception:
+            logger.exception("Indexing failed; trying again in 10 minutes")
+            await _pause(stop, FAILURE_PAUSE_SECONDS)
+            continue
+        if not indexed:
+            await _pause(stop, INDEX_IDLE_SECONDS)
+
+
 async def _pause(stop: asyncio.Event, seconds: float) -> None:
     """Sleep, but wake at once when the worker is told to stop."""
     with contextlib.suppress(TimeoutError):
@@ -322,6 +341,10 @@ async def main() -> None:
             tasks.append(describe_images(SessionFactory, fetcher, get_claude(), stop))
         else:
             logger.warning("ANTHROPIC_API_KEY isn't set, so screenshots won't be described")
+        if voyage := get_voyage():
+            tasks.append(index_chunks(SessionFactory, voyage, stop))
+        else:
+            logger.warning("VOYAGE_API_KEY isn't set, so nothing will be embedded")
         logger.info(
             "Worker started: %d tasks, at most %.1f requests per second per host",
             len(tasks),
