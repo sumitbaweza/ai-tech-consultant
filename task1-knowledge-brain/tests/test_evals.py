@@ -51,6 +51,7 @@ def result(
         citations=citations,
         confidence=0.9 if citations else 0.0,
         outcome=outcome,
+        sources=[],
     )
 
 

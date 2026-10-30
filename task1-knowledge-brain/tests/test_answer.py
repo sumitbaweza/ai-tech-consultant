@@ -180,6 +180,8 @@ async def test_a_question_far_from_everything_never_reaches_claude(
 
     assert (result.outcome, result.answer) == (Outcome.LOW_RETRIEVAL, DONT_KNOW)
     assert api.prompts == []
+    # It still says what search found. ask() only reads: the API opens the expert task.
+    assert (len(result.sources), result.expert_task_id) == (3, None)
 
 
 @pytest.mark.db

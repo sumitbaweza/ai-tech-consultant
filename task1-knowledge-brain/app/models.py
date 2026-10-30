@@ -27,6 +27,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -335,18 +336,36 @@ class Chunk(Base):
 
 
 class ExpertTask(Base):
-    """A question the Brain couldn't answer, waiting for a human expert (used from Day 2)."""
+    """A question the Brain couldn't answer, or answered wrongly, waiting for a human expert."""
 
     __tablename__ = "expert_tasks"
+    # One task per question while it's open or dismissed, so asking again adds to its count.
+    # A question asked again after it was answered gets a new task: the answer didn't help.
+    __table_args__ = (
+        Index(
+            "ix_expert_tasks_question_key",
+            "question_key",
+            unique=True,
+            postgresql_where=text("status IN ('open', 'dismissed')"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # The question as it stands on its own: a follow-up, rewritten with the chat before it
     question: Mapped[str]
+    # The question's words in lower case, without punctuation, so a repeat is spotted
+    question_key: Mapped[str]
     # The chat turns before the question, so the expert sees the whole conversation
     history: Mapped[list[dict[str, str]]] = mapped_column(JSONB, default=list)
     # What search returned at the time: chunk ids and scores
     retrieved: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
     reason: Mapped[ExpertReason] = mapped_column(text_enum(ExpertReason))
     status: Mapped[ExpertStatus] = mapped_column(text_enum(ExpertStatus))
+    # How often it was asked or flagged; the queue shows the most asked first
+    asked_count: Mapped[int] = mapped_column(server_default="1")
+    last_asked_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    # For a thumbs down: the answer the Brain gave, which the user said was wrong
+    given_answer: Mapped[str | None]
     answer: Mapped[str | None]
     answered_by: Mapped[str | None]
     answered_at: Mapped[datetime | None]

@@ -10,8 +10,9 @@ ask() runs these steps:
 5. Citation ids that don't match a source are dropped. An answer with no valid citation left
    can't be checked, so it becomes "I don't know" too.
 
-Every result has an outcome saying why it was or wasn't answered. Unanswered outcomes are the
-reasons an expert task is created for (from Day 2).
+Every result has an outcome saying why it was or wasn't answered, and lists the sources search
+found. ask() only reads: for an unanswered question, POST /v1/ask opens an expert task
+(app/experts.py), so evals and other callers can ask without filling the queue.
 """
 
 import logging
@@ -79,6 +80,17 @@ class Citation(BaseModel):
     snippet: str
 
 
+class Source(BaseModel):
+    """A chunk that search found for the question, cited or not."""
+
+    chunk_id: int
+    page_id: int
+    title: str | None
+    url: str
+    similarity: float | None  # cosine similarity to the question, if vector search found it
+    score: float  # the fused rank score: higher is better
+
+
 class AskResult(BaseModel):
     question: str
     standalone_question: str  # the question that was searched: a follow-up, rewritten
@@ -87,6 +99,9 @@ class AskResult(BaseModel):
     citations: list[Citation]
     confidence: float
     outcome: Outcome
+    sources: list[Source]  # everything search found, best first
+    # The expert task the question went to, when the help center didn't answer it
+    expert_task_id: int | None = None
 
 
 async def ask(
@@ -109,9 +124,10 @@ async def ask(
         except EmbeddingError:
             logger.warning("Embedding the question failed; searching by exact words only")
     hits = await search(session, standalone, query_vector, limit=MAX_SOURCES)
+    found = [_source(hit) for hit in hits]
 
     if not hits or (query_vector is not None and _best_similarity(hits) < MIN_SIMILARITY):
-        return _unanswered(question, standalone, Outcome.LOW_RETRIEVAL, DONT_KNOW)
+        return _unanswered(question, standalone, Outcome.LOW_RETRIEVAL, DONT_KNOW, found)
 
     sources = {f"S{number}": hit for number, hit in enumerate(hits, start=1)}
     try:
@@ -120,14 +136,14 @@ async def ask(
         )
     except (LLMError, anthropic.APIError) as error:
         logger.warning("Answering failed: %s", error)
-        return _unanswered(question, standalone, Outcome.MODEL_FAILED, FAILED)
+        return _unanswered(question, standalone, Outcome.MODEL_FAILED, FAILED, found)
 
     # dict.fromkeys keeps the first mention of each id, in order; ids we didn't give are dropped
     cited = [source_id for source_id in dict.fromkeys(draft.citations) if source_id in sources]
     if not draft.answered:
-        return _unanswered(question, standalone, Outcome.NOT_IN_SOURCES, draft.answer)
+        return _unanswered(question, standalone, Outcome.NOT_IN_SOURCES, draft.answer, found)
     if not cited:
-        return _unanswered(question, standalone, Outcome.NO_VALID_CITATION, DONT_KNOW)
+        return _unanswered(question, standalone, Outcome.NO_VALID_CITATION, DONT_KNOW, found)
     return AskResult(
         question=question,
         standalone_question=standalone,
@@ -136,6 +152,7 @@ async def ask(
         citations=[_citation(source_id, sources[source_id]) for source_id in cited],
         confidence=draft.confidence,
         outcome=Outcome.ANSWERED,
+        sources=found,
     )
 
 
@@ -193,7 +210,20 @@ def _citation(source_id: str, hit: SearchHit) -> Citation:
     )
 
 
-def _unanswered(question: str, standalone: str, outcome: Outcome, answer: str) -> AskResult:
+def _source(hit: SearchHit) -> Source:
+    return Source(
+        chunk_id=hit.chunk_id,
+        page_id=hit.page_id,
+        title=hit.title,
+        url=hit.url,
+        similarity=hit.similarity,
+        score=hit.score,
+    )
+
+
+def _unanswered(
+    question: str, standalone: str, outcome: Outcome, answer: str, found: list[Source]
+) -> AskResult:
     return AskResult(
         question=question,
         standalone_question=standalone,
@@ -202,4 +232,5 @@ def _unanswered(question: str, standalone: str, outcome: Outcome, answer: str) -
         citations=[],
         confidence=0.0,
         outcome=outcome,
+        sources=found,
     )
