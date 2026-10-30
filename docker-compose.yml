@@ -1,0 +1,64 @@
+# The whole system starts with one command: `make up`, or `docker compose up -d --build`.
+# Values like ${POSTGRES_PASSWORD} come from the .env file next to this one.
+
+# Set the project name here, because the repo folder's name may contain spaces.
+name: ai-tech-consultant
+
+# Shared by every Brain service: one image, the same settings
+x-brain: &brain
+  build: ./task1-knowledge-brain
+  image: ai-tech-consultant/brain:dev
+  environment:
+    DB_HOST: postgres
+    BRAIN_DB_PASSWORD: ${BRAIN_DB_PASSWORD:?Set BRAIN_DB_PASSWORD in .env}
+    BRAIN_API_KEYS: ${BRAIN_API_KEYS:?Set BRAIN_API_KEYS in .env}
+
+services:
+  postgres:
+    # Postgres 16 with the pgvector extension, pinned so a fresh clone gets the same database.
+    image: pgvector/pgvector:0.8.0-pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: consultant
+      # Read by db/init/01-schemas.sh, which creates one login role per task
+      BRAIN_DB_PASSWORD: ${BRAIN_DB_PASSWORD:?Set BRAIN_DB_PASSWORD in .env}
+      INBOX_DB_PASSWORD: ${INBOX_DB_PASSWORD:?Set INBOX_DB_PASSWORD in .env}
+      SCOPE_DB_PASSWORD: ${SCOPE_DB_PASSWORD:?Set SCOPE_DB_PASSWORD in .env}
+    ports:
+      # Only reachable from this machine, for local tools and tests
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Scripts here run once, when the pgdata volume is first created
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d consultant"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Applies the Brain's database migrations once, then exits
+  brain-migrate:
+    <<: *brain
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # The Brain's API. Docs: http://localhost:8000/docs
+  brain-api:
+    <<: *brain
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      brain-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  pgdata:

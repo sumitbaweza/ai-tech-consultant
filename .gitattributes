@@ -1,0 +1,10 @@
+# Store and check out text files with LF endings, even on Windows.
+# A shell script or Dockerfile with CRLF endings breaks inside a Linux container.
+* text=auto eol=lf
+
+# Binary files: never convert
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
+*.dump binary
