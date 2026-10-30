@@ -95,8 +95,12 @@ async def ask(
     embedder: Embedder | None,
     question: str,
     history: list[ChatTurn],
+    *,
+    run_tag: str | None = None,
 ) -> AskResult:
-    standalone = await _standalone(claude, question, history) if history else question
+    """`run_tag` labels this question's Claude calls in llm_calls, so an eval can add up what
+    each question cost."""
+    standalone = await _standalone(claude, question, history, run_tag) if history else question
 
     query_vector: list[float] | None = None
     if embedder is not None:
@@ -111,7 +115,9 @@ async def ask(
 
     sources = {f"S{number}": hit for number, hit in enumerate(hits, start=1)}
     try:
-        draft = await claude.call("answer", 1, answer_content(standalone, sources), AnswerDraft)
+        draft = await claude.call(
+            "answer", 1, answer_content(standalone, sources), AnswerDraft, run_tag=run_tag
+        )
     except (LLMError, anthropic.APIError) as error:
         logger.warning("Answering failed: %s", error)
         return _unanswered(question, standalone, Outcome.MODEL_FAILED, FAILED)
@@ -151,11 +157,17 @@ def rewrite_content(history: list[ChatTurn], question: str) -> str:
     return f"<chat>\n{turns}\n</chat>\n\n<last_message>{question}</last_message>"
 
 
-async def _standalone(claude: Claude, question: str, history: list[ChatTurn]) -> str:
+async def _standalone(
+    claude: Claude, question: str, history: list[ChatTurn], run_tag: str | None
+) -> str:
     """The follow-up as a question that stands on its own; the question as asked if that fails."""
     try:
         rewritten = await claude.call(
-            "rewrite_question", 1, rewrite_content(history, question), StandaloneQuestion
+            "rewrite_question",
+            1,
+            rewrite_content(history, question),
+            StandaloneQuestion,
+            run_tag=run_tag,
         )
     except (LLMError, anthropic.APIError) as error:
         logger.warning("Rewriting the follow-up failed, so it's searched as asked: %s", error)

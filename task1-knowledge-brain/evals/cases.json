@@ -1,0 +1,34 @@
+{
+  "cases": [
+    {
+      "id": "how-to-rename-a-word-everywhere",
+      "kind": "how_to",
+      "question": "How can I change the word 'company' to 'startup' everywhere on my site?",
+      "expected_urls": [
+        "https://support.brilliantdirectories.com/support/solutions/articles/5000682673-settings-text-labels"
+      ],
+      "expected_answer": "Use Text Labels: go to Settings » Text Labels, type the word in the Search box, change the label's text, then click Save in the Unsaved changes bar. One change updates the word everywhere it appears.",
+      "notes": "Example case: keep it, edit it or replace it."
+    },
+    {
+      "id": "follow-up-labels-edited-last-week",
+      "kind": "follow_up",
+      "history": [
+        {"role": "user", "content": "How do I change the word 'company' everywhere on my site?"},
+        {"role": "assistant", "content": "Go to Settings » Text Labels, find the label and change its text."}
+      ],
+      "question": "Can I see only the ones I changed last week?",
+      "expected_urls": [
+        "https://support.brilliantdirectories.com/support/solutions/articles/5000682673-settings-text-labels"
+      ],
+      "expected_answer": "Yes: click the Date edited field above the list, choose the Last 7 Days preset (or a start and an end date) in its calendar, then click Apply. Sorting by Recently Edited also puts the latest changes first.",
+      "notes": "Example case: the question only makes sense with the history."
+    },
+    {
+      "id": "unanswerable-berlin-sales-office",
+      "kind": "unanswerable",
+      "question": "What is the phone number of your sales office in Berlin?",
+      "notes": "Example case. 'Berlin' appears only as a sample city in the Users API article, so search finds that article; the answer must still be 'I don't know'."
+    }
+  ]
+}

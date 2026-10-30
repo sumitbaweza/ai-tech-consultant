@@ -28,7 +28,7 @@ target-version = "py312"
 select = ["E", "W", "F", "I", "B", "UP", "SIM", "ASYNC", "RUF"]
 
 [tool.pyright]
-include = ["app", "migrations", "tests"]
+include = ["app", "evals", "migrations", "tests"]
 typeCheckingMode = "strict"
 pythonVersion = "3.12"
 venvPath = "."

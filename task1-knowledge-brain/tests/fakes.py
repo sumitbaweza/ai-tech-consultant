@@ -11,7 +11,7 @@ from typing import Any
 import httpx2
 from anthropic import AsyncAnthropic
 
-from app.llm import PROMPTS_DIR, Claude
+from app.llm import PROMPTS_DIR, Claude, Ledger
 from app.models import LLMCall
 
 type Handler = Callable[[httpx2.Request], httpx2.Response]
@@ -28,7 +28,7 @@ class ListLedger:
 
 
 def make_claude(
-    handler: Handler, prompts_dir: Path = PROMPTS_DIR, ledger: ListLedger | None = None
+    handler: Handler, prompts_dir: Path = PROMPTS_DIR, ledger: Ledger | None = None
 ) -> Claude:
     # max_retries=0: the SDK's own retries are its business; the tests check ours
     client = AsyncAnthropic(
