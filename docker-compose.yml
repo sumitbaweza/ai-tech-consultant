@@ -62,5 +62,14 @@ services:
       timeout: 3s
       retries: 5
 
+  # Crawls queued pages: 2 tasks sharing one polite rate limit. Restarting it resumes the crawl.
+  brain-worker:
+    <<: *brain
+    command: ["python", "-m", "app.jobs.worker"]
+    depends_on:
+      brain-migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
 volumes:
   pgdata:

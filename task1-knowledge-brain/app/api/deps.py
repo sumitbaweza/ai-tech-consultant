@@ -7,17 +7,24 @@ from typing import Annotated
 import httpx2
 from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import APIKeyHeader
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings, get_settings
 from app.crawler.http import make_client
-from app.db import get_session
+from app.db import SessionFactory, get_session
 
 # Declared as a security scheme, so /docs shows an Authorize button for the key
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
+
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
+    """For a stream that outlives one request: it opens a fresh session for each read."""
+    return SessionFactory
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
+SessionFactoryDep = Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)]
 
 
 async def require_api_key(
