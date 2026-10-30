@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     # Claude. Empty until you add it to .env; calls fail with an auth error until then.
     anthropic_api_key: SecretStr = SecretStr("")
 
+    # Crawler politeness: who we say we are, and the most requests per second to one host
+    crawler_user_agent: str = "AITechConsultantBot/0.1 (polite help-center crawler)"
+    crawler_requests_per_second: float = 1.0
+
     @property
     def database_url(self) -> URL:
         # URL.create escapes special characters in the password; an f-string would not.

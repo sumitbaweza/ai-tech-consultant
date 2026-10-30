@@ -1,20 +1,28 @@
 """Dependencies shared by the /v1 routes."""
 
 import secrets
+from collections.abc import AsyncIterator
 from typing import Annotated
 
+import httpx2
 from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import APIKeyHeader
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
+from app.crawler.http import make_client
+from app.db import get_session
 
 # Declared as a security scheme, so /docs shows an Authorize button for the key
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
+SettingsDep = Annotated[Settings, Depends(get_settings)]
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
+
 
 async def require_api_key(
     key: Annotated[str | None, Security(api_key_header)],
-    settings: Annotated[Settings, Depends(get_settings)],
+    settings: SettingsDep,
 ) -> None:
     """Reject the request with 401 unless X-API-Key matches one of BRAIN_API_KEYS."""
     # compare_digest takes the same time wherever the strings differ, so response times
@@ -26,3 +34,13 @@ async def require_api_key(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing or invalid X-API-Key header",
         )
+
+
+async def get_crawler_client(settings: SettingsDep) -> AsyncIterator[httpx2.AsyncClient]:
+    """An HTTP client for reading the help center, closed when the request ends. Tests
+    replace it with one that talks to a fake site."""
+    async with make_client(settings) as client:
+        yield client
+
+
+CrawlerClientDep = Annotated[httpx2.AsyncClient, Depends(get_crawler_client)]

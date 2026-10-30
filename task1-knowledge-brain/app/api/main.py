@@ -6,8 +6,11 @@ Protected: everything under /v1, which needs a key in the X-API-Key header.
 
 from typing import Literal
 
-from fastapi import FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 from pydantic import BaseModel
+
+from app.api.deps import require_api_key
+from app.api.routes import ingestions, sitemaps
 
 app = FastAPI(
     title="Knowledge Brain API",
@@ -15,6 +18,11 @@ app = FastAPI(
     summary="Answers questions about the Brilliant Directories help center, with citations.",
     description="Every /v1 endpoint needs an `X-API-Key` header. Click **Authorize** to add it.",
 )
+
+v1 = APIRouter(prefix="/v1", dependencies=[Depends(require_api_key)])
+v1.include_router(sitemaps.router)
+v1.include_router(ingestions.router)
+app.include_router(v1)
 
 
 class Health(BaseModel):
