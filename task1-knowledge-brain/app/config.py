@@ -8,7 +8,7 @@ variable always wins over the .env file.
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     # Crawler politeness: who we say we are, and the most requests per second to one host
     crawler_user_agent: str = "AITechConsultantBot/0.1 (polite help-center crawler)"
     crawler_requests_per_second: float = 1.0
+    # Faster limits for hosts built to take more, such as the CDN that serves the screenshots.
+    # As JSON in the environment: CRAWLER_HOST_RATES='{"s3.amazonaws.com": 2}'
+    crawler_host_rates: dict[str, float] = Field(default_factory=lambda: {"s3.amazonaws.com": 2.0})
 
     @property
     def database_url(self) -> URL:

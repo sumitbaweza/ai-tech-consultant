@@ -1,22 +1,15 @@
-"""The Claude wrapper, run against a fake Claude API: no network, no key, no cost.
-
-The SDK sends its requests through httpx2, so the fake is an httpx2 MockTransport handler
-that records each request and answers with a canned reply.
-"""
+"""The Claude wrapper, run against a fake Claude API: no network, no key, no cost."""
 
 import json
-from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import httpx2
 import pytest
-from anthropic import AsyncAnthropic
 from pydantic import BaseModel, ValidationError
 
 from app.llm import (
-    Claude,
     LLMError,
     LLMRefusal,
     LLMTruncated,
@@ -25,9 +18,7 @@ from app.llm import (
     cost_usd,
     load_prompt,
 )
-from app.models import LLMCall
-
-type Handler = Callable[[httpx2.Request], httpx2.Response]
+from tests.fakes import ListLedger, batch_json, make_claude, message_json
 
 
 class Echo(BaseModel):
@@ -70,16 +61,6 @@ def prompts_dir(tmp_path: Path) -> Path:
     return tmp_path
 
 
-class ListLedger:
-    """Keeps ledger rows in a list instead of the database."""
-
-    def __init__(self) -> None:
-        self.rows: list[LLMCall] = []
-
-    async def record(self, call: LLMCall) -> None:
-        self.rows.append(call)
-
-
 class FakeClaudeAPI:
     """Answers each request with the next canned reply, and records what was sent."""
 
@@ -95,43 +76,8 @@ class FakeClaudeAPI:
         return json.loads(self.requests[index].content)
 
 
-def message_json(
-    text: str,
-    *,
-    model: str = "claude-haiku-5-5",
-    stop_reason: str = "end_turn",
-    input_tokens: int = 1000,
-    output_tokens: int = 200,
-) -> dict[str, Any]:
-    return {
-        "id": "msg_test",
-        "type": "message",
-        "role": "assistant",
-        "model": model,
-        "content": [{"type": "text", "text": text}],
-        "stop_reason": stop_reason,
-        "stop_sequence": None,
-        "usage": {
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "cache_creation_input_tokens": 0,
-            "cache_read_input_tokens": 0,
-        },
-    }
-
-
 def message(text: str, **kwargs: Any) -> httpx2.Response:
     return httpx2.Response(200, json=message_json(text, **kwargs))
-
-
-def make_claude(handler: Handler, prompts_dir: Path, ledger: ListLedger | None = None) -> Claude:
-    # max_retries=0: the SDK's own retries are its business; these tests check ours
-    client = AsyncAnthropic(
-        api_key="test-key",
-        max_retries=0,
-        http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)),
-    )
-    return Claude(client, ledger or ListLedger(), prompts_dir)
 
 
 # --- Prompt files -------------------------------------------------------------------------
@@ -280,30 +226,6 @@ def test_unknown_model_is_logged_at_zero_cost() -> None:
 
 
 # --- Message Batches ----------------------------------------------------------------------
-
-
-def batch_json(status: str) -> dict[str, Any]:
-    ended = status == "ended"
-    return {
-        "id": "msgbatch_test",
-        "type": "message_batch",
-        "processing_status": status,
-        "request_counts": {
-            "processing": 0 if ended else 2,
-            "succeeded": 1 if ended else 0,
-            "errored": 1 if ended else 0,
-            "canceled": 0,
-            "expired": 0,
-        },
-        "created_at": "2026-10-30T10:00:00Z",
-        "expires_at": "2026-10-31T10:00:00Z",
-        "ended_at": "2026-10-30T10:05:00Z" if ended else None,
-        "archived_at": None,
-        "cancel_initiated_at": None,
-        "results_url": (
-            "https://api.anthropic.com/v1/messages/batches/msgbatch_test/results" if ended else None
-        ),
-    }
 
 
 class FakeBatchAPI:

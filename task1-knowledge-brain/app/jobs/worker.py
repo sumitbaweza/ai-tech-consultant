@@ -23,11 +23,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.config import get_settings
 from app.crawler.fetch import FetchBlocked, Fetched, Fetcher, FetchError
 from app.crawler.http import make_client
+from app.crawler.images import collect_batches, describe_new_images
 from app.crawler.parse import ImageRef, parse_page, without_query
 from app.crawler.ratelimit import HostRateLimiter
 from app.crawler.robots import RobotsRules
 from app.crawler.sitemap import guess_kind
 from app.db import SessionFactory
+from app.llm import Claude, get_claude
 from app.models import Image, IngestionRun, Page, PageKind, PageStatus, PageVersion, RunStatus
 
 logger = logging.getLogger("brain.worker")
@@ -36,6 +38,8 @@ CONCURRENCY = 2
 STALE_CLAIM = timedelta(minutes=5)
 MAX_ATTEMPTS = 3  # failed fetches in a row before the worker gives up on a page
 IDLE_SECONDS = 5.0  # how long to wait before looking again when the queue is empty
+IMAGES_IDLE_SECONDS = 60.0  # how often the screenshot task looks for work and finished batches
+FAILURE_PAUSE_SECONDS = 600.0
 
 
 class PageFetcher(Protocol):
@@ -229,8 +233,7 @@ async def crawl(
         async with session_factory() as session:
             page = await claim_next_page(session)
             if page is None:
-                with contextlib.suppress(TimeoutError):
-                    await asyncio.wait_for(stop.wait(), IDLE_SECONDS)
+                await _pause(stop, IDLE_SECONDS)
                 continue
             try:
                 await process_page(session, fetcher, page)
@@ -239,6 +242,34 @@ async def crawl(
                 # One bad page mustn't stop the crawl. Its claim expires, so it's retried later.
                 logger.exception("Failed on %s", page.url)
                 await session.rollback()
+
+
+async def describe_images(
+    session_factory: async_sessionmaker[AsyncSession],
+    fetcher: Fetcher,
+    claude: Claude,
+    stop: asyncio.Event,
+) -> None:
+    """The screenshot task: describe new images, collect finished batches, repeat."""
+    while not stop.is_set():
+        try:
+            async with session_factory() as session:
+                described = await describe_new_images(session, fetcher, claude)
+                collected = await collect_batches(session, claude)
+        except Exception:
+            # A bad key or an outage: wait a while, rather than download the same screenshots
+            # again every minute
+            logger.exception("Describing screenshots failed; trying again in 10 minutes")
+            await _pause(stop, FAILURE_PAUSE_SECONDS)
+            continue
+        if not (described or collected):
+            await _pause(stop, IMAGES_IDLE_SECONDS)
+
+
+async def _pause(stop: asyncio.Event, seconds: float) -> None:
+    """Sleep, but wake at once when the worker is told to stop."""
+    with contextlib.suppress(TimeoutError):
+        await asyncio.wait_for(stop.wait(), seconds)
 
 
 async def main() -> None:
@@ -252,15 +283,22 @@ async def main() -> None:
             asyncio.get_running_loop().add_signal_handler(stop_signal, stop.set)
 
     async with make_client(settings) as client:
-        limiter = HostRateLimiter(settings.crawler_requests_per_second)
+        limiter = HostRateLimiter(
+            settings.crawler_requests_per_second, per_host=settings.crawler_host_rates
+        )
         robots = RobotsRules(client, settings.crawler_user_agent, limiter)
         fetcher = Fetcher(client, limiter, robots)
+        tasks = [crawl(SessionFactory, fetcher, stop) for _ in range(CONCURRENCY)]
+        if settings.anthropic_api_key.get_secret_value():
+            tasks.append(describe_images(SessionFactory, fetcher, get_claude(), stop))
+        else:
+            logger.warning("ANTHROPIC_API_KEY isn't set, so screenshots won't be described")
         logger.info(
             "Worker started: %d tasks, at most %.1f requests per second per host",
-            CONCURRENCY,
+            len(tasks),
             settings.crawler_requests_per_second,
         )
-        await asyncio.gather(*(crawl(SessionFactory, fetcher, stop) for _ in range(CONCURRENCY)))
+        await asyncio.gather(*tasks)
     logger.info("Worker stopped")
 
 
