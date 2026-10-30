@@ -39,6 +39,12 @@ x-inbox: &inbox
     # May be empty: then there is no Google sign-in
     GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+    # May be empty: mail still shows, and drafting says the key is missing
+    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    # The Brain's API inside the Compose network, and one of its BRAIN_API_KEYS.
+    # No depends_on: when the Brain is down, the inbox marks facts unavailable.
+    BRAIN_API_URL: http://brain-api:8000
+    BRAIN_API_KEY: ${BRAIN_API_KEY:-}
 
 services:
   postgres:
