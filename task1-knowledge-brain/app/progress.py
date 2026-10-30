@@ -110,7 +110,14 @@ async def knowledge_base_stats(session: AsyncSession) -> Stats:
         )
         or 0
     )
-    listed_pages = await session.scalar(select(func.count(distinct(PageSitemap.page_id)))) or 0
+    listed_pages = (
+        await session.scalar(
+            select(func.count(distinct(PageSitemap.page_id))).where(
+                PageSitemap.removed_at.is_(None)
+            )
+        )
+        or 0
+    )
     last_fetch = await session.scalar(select(func.max(Page.fetched_at)))
     last_check = await session.scalar(select(func.max(Sitemap.last_checked_at)))
 

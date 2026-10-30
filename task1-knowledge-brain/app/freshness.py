@@ -5,14 +5,19 @@ every 15 or 30 days). Every minute the worker's check task claims a sitemap whos
 and checks it:
 
 1. Read the sitemap and the sitemaps inside it again, with the same polite discovery code as
-   the first time.
-2. Add new URLs to the knowledge base and queue them at once. The user already confirmed this
+   the first time. Discovery marks the URLs that a sitemap no longer lists.
+2. Apply the retention rule. A page that no sitemap lists any more has missed one more check,
+   and once it has missed as many in a row as the rule says (1, 2, 15 or 30), it's archived:
+   kept with its text, history, screenshots and vectors, but out of search. A page listed
+   again starts from 0, and an archived one is fetched again, which makes it active.
+3. Add new URLs to the knowledge base and queue them at once. The user already confirmed this
    sitemap and its schedule, so there's no second preview.
-3. Queue every other page of the sitemap for another fetch, except archived ones. The content
-   hash then decides what changed: an unchanged page costs one download (or a 304, from a
-   server that sends ETag or Last-Modified), and only a changed page gets a change-history
-   row, new screenshot descriptions and new embeddings.
-4. Set the next check to this check's start plus the schedule's interval. After downtime that
+4. Queue every other page of the sitemap for another fetch, except archived ones. That
+   includes missing pages the rule still keeps, so a deleted article that answers 404 leaves
+   search at once. The content hash decides what changed: an unchanged page costs one download
+   (or a 304, from a server that sends ETag or Last-Modified), and only a changed page gets a
+   change-history row, new screenshot descriptions and new embeddings.
+5. Set the next check to this check's start plus the schedule's interval. After downtime that
    gives one catch-up check, not one per missed day.
 
 The queued pages belong to a new `refresh` ingestion run, so the progress stream and its ETA
@@ -20,26 +25,43 @@ work as they do for the first crawl.
 
 A check is put off for RETRY_AFTER when the sitemap can't be read (its error is saved on it),
 or when its last crawl is still running, since queueing those pages again would fetch them
-twice.
+twice. A broken sitemap inside it doesn't stop the check, and its URLs don't count as missing.
 """
 
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 import httpx2
-from sqlalchemy import CursorResult, distinct, func, select, update
+from sqlalchemy import ColumnElement, CursorResult, Result, distinct, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crawler.ratelimit import HostRateLimiter
 from app.crawler.robots import RobotsRules
 from app.crawler.sitemap import discover
 from app.ingest import save_discovery, sitemap_tree
-from app.models import IngestionRun, Page, PageSitemap, PageStatus, RunKind, RunStatus, Sitemap
+from app.models import (
+    IngestionRun,
+    Page,
+    PageSitemap,
+    PageStatus,
+    Retention,
+    RunKind,
+    RunStatus,
+    Sitemap,
+)
 
 logger = logging.getLogger(__name__)
 
 RETRY_AFTER = timedelta(hours=1)
+
+
+class Retained(NamedTuple):
+    """What the retention rule did in one check."""
+
+    missing: int  # pages that no sitemap lists any more: each missed one more check
+    archived: int  # of those, the ones that reached the rule in this check
+    restored: int  # archived pages listed again, queued to be fetched and made active
 
 
 async def claim_due_sitemap(session: AsyncSession) -> Sitemap | None:
@@ -97,9 +119,31 @@ async def check_sitemap(
         return None
 
     await save_discovery(session, found, sitemap.schedule, sitemap.retention)
-    run = await _queue_pages(session, sitemap)
+    # The tree is read after discovery, so sitemaps new in this check are included
+    tree_ids = [tree_sitemap.id for tree_sitemap in await sitemap_tree(session, [sitemap.id])]
+    in_tree = Page.id.in_(select(PageSitemap.page_id).where(PageSitemap.sitemap_id.in_(tree_ids)))
+    run = IngestionRun(kind=RunKind.REFRESH, status=RunStatus.RUNNING, sitemap_ids=[sitemap.id])
+    session.add(run)
+    await session.flush()  # gives the run its id
+
+    retained = await _apply_retention(session, in_tree, sitemap.retention, run)
+    added, again = await _queue_pages(session, in_tree, run)
+    run.total_pages = retained.restored + added + again
+    if run.total_pages == 0:
+        run.status, run.finished_at = RunStatus.DONE, datetime.now(UTC)
     sitemap.next_check_at = started + sitemap.schedule.interval
     await session.commit()
+    logger.info(
+        "Checked %s: %d new, %d missing (%d archived now), %d restored, %d to fetch again "
+        "(ingestion %d)",
+        sitemap.url,
+        added,
+        retained.missing,
+        retained.archived,
+        retained.restored,
+        again,
+        run.id,
+    )
     return run
 
 
@@ -114,19 +158,51 @@ async def pages_still_queued(session: AsyncSession, sitemap_id: int) -> int:
     return queued or 0
 
 
-async def _queue_pages(session: AsyncSession, sitemap: Sitemap) -> IngestionRun:
-    """Queue the sitemap's new pages, and all its known ones except archived pages, under a new
-    refresh run."""
-    # The tree is read after save_discovery, so sitemaps new in this check are included
-    tree_ids = [tree_sitemap.id for tree_sitemap in await sitemap_tree(session, [sitemap.id])]
-    listed = select(PageSitemap.page_id).where(PageSitemap.sitemap_id.in_(tree_ids))
-    run = IngestionRun(kind=RunKind.REFRESH, status=RunStatus.RUNNING, sitemap_ids=[sitemap.id])
-    session.add(run)
-    await session.flush()  # gives the run its id
+async def _apply_retention(
+    session: AsyncSession, in_tree: ColumnElement[bool], retention: Retention, run: IngestionRun
+) -> Retained:
+    """Count one more missed check for each page of the sitemap that no sitemap lists any more,
+    and archive the ones that reach the retention rule. Archived pages listed again are queued
+    in the run, and their fetch makes them active."""
+    # Listed by any sitemap, so a duplicate URL that one sitemap dropped isn't missing
+    listed = Page.id.in_(select(PageSitemap.page_id).where(PageSitemap.removed_at.is_(None)))
+    not_archived = Page.status != PageStatus.ARCHIVED
 
+    restored = await session.execute(
+        update(Page)
+        .where(in_tree, listed, Page.status == PageStatus.ARCHIVED)
+        .values(missing_count=0, fetch_requested_at=func.now(), run_id=run.id)
+        .execution_options(synchronize_session=False)
+    )
+    await session.execute(  # missed checks count only in a row
+        update(Page)
+        .where(in_tree, listed, Page.missing_count > 0)
+        .values(missing_count=0)
+        .execution_options(synchronize_session=False)
+    )
+    missing = await session.execute(
+        update(Page)
+        .where(in_tree, ~listed, not_archived)
+        .values(missing_count=Page.missing_count + 1)
+        .execution_options(synchronize_session=False)
+    )
+    archived = await session.execute(
+        update(Page)
+        .where(in_tree, ~listed, not_archived, Page.missing_count >= retention.missing_checks)
+        .values(status=PageStatus.ARCHIVED, archived_at=func.now())
+        .execution_options(synchronize_session=False)
+    )
+    return Retained(_count(missing), _count(archived), _count(restored))
+
+
+async def _queue_pages(
+    session: AsyncSession, in_tree: ColumnElement[bool], run: IngestionRun
+) -> tuple[int, int]:
+    """Queue the sitemap's new pages, and every known page that isn't archived, in the run.
+    Returns how many of each."""
     new_pages = await session.execute(
         update(Page)
-        .where(Page.id.in_(listed), Page.status == PageStatus.DISCOVERED)
+        .where(in_tree, Page.status == PageStatus.DISCOVERED)
         .values(status=PageStatus.PENDING, fetch_requested_at=func.now(), run_id=run.id)
         .execution_options(synchronize_session=False)
     )
@@ -134,24 +210,13 @@ async def _queue_pages(session: AsyncSession, sitemap: Sitemap) -> IngestionRun:
     # already queued (a redirect's destination, say) keeps its place and its run.
     known_pages = await session.execute(
         update(Page)
-        .where(
-            Page.id.in_(listed),
-            Page.status != PageStatus.ARCHIVED,
-            Page.fetch_requested_at.is_(None),
-        )
+        .where(in_tree, Page.status != PageStatus.ARCHIVED, Page.fetch_requested_at.is_(None))
         .values(fetch_requested_at=func.now(), run_id=run.id)
         .execution_options(synchronize_session=False)
     )
-    added = cast(CursorResult[Any], new_pages).rowcount
-    again = cast(CursorResult[Any], known_pages).rowcount
-    run.total_pages = added + again
-    if run.total_pages == 0:
-        run.status, run.finished_at = RunStatus.DONE, datetime.now(UTC)
-    logger.info(
-        "Checked %s: %d new pages, %d known pages to fetch again (ingestion %d)",
-        sitemap.url,
-        added,
-        again,
-        run.id,
-    )
-    return run
+    return _count(new_pages), _count(known_pages)
+
+
+def _count(result: Result[Any]) -> int:
+    """How many rows an UPDATE changed."""
+    return cast(CursorResult[Any], result).rowcount

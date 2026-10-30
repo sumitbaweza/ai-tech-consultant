@@ -241,12 +241,14 @@ class Page(Base):
     attempts: Mapped[int] = mapped_column(server_default="0")
     error: Mapped[str | None]
     fetched_at: Mapped[datetime | None]
+    # When the retention rule last archived the page. Kept if its URL comes back, as history.
     archived_at: Mapped[datetime | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
 class PageSitemap(Base):
-    """One row per sitemap that lists a URL. Two rows for one page means a duplicate URL."""
+    """One row per sitemap that lists a URL, or once did. Two listed rows for one page means a
+    duplicate URL."""
 
     __tablename__ = "page_sitemaps"
 
@@ -256,6 +258,10 @@ class PageSitemap(Base):
     position: Mapped[int]
     first_seen_at: Mapped[datetime] = mapped_column(server_default=func.now())
     last_seen_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    # Set when a read of the sitemap no longer lists the URL, cleared if it lists it again. The
+    # row stays as the record of where the URL was listed. A page that no sitemap lists any
+    # more is missing, and the retention rule decides when it's archived.
+    removed_at: Mapped[datetime | None]
 
 
 class PageVersion(Base):

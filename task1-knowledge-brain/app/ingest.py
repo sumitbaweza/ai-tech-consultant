@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from pydantic import BaseModel
-from sqlalchemy import CursorResult, distinct, func, or_, select, update
+from sqlalchemy import CursorResult, and_, distinct, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -155,7 +155,12 @@ async def save_discovery(
         for position, page in enumerate(sitemap.pages):
             positions.setdefault(page_ids[page.url], position)
         reference_rows = [
-            {"page_id": page_id, "sitemap_id": sitemap_ids[sitemap.url], "position": position}
+            {
+                "page_id": page_id,
+                "sitemap_id": sitemap_ids[sitemap.url],
+                "position": position,
+                "last_seen_at": now,
+            }
             for page_id, position in positions.items()
         ]
         for batch in _batches(reference_rows):
@@ -163,12 +168,60 @@ async def save_discovery(
             await session.execute(
                 upsert.on_conflict_do_update(
                     index_elements=[PageSitemap.page_id, PageSitemap.sitemap_id],
-                    set_={"position": upsert.excluded.position, "last_seen_at": func.now()},
+                    set_={
+                        "position": upsert.excluded.position,
+                        "last_seen_at": now,
+                        "removed_at": None,
+                    },
                 )
             )
 
+    # A sitemap read just now that no longer lists a URL keeps its row, marked removed. Every
+    # URL it does list was just given last_seen_at = now, so a row with an older time wasn't in
+    # the file. Only sitemaps read just now count: one that failed to load never makes its URLs
+    # look gone.
+    read_ids = [
+        sitemap_ids[sitemap.url] for sitemap in found if sitemap.was_read and not sitemap.is_index
+    ]
+    read_ids += await _dropped_sitemaps(session, found, sitemap_ids)
+    await session.execute(
+        update(PageSitemap)
+        .where(
+            PageSitemap.sitemap_id.in_(read_ids),
+            PageSitemap.last_seen_at < now,
+            PageSitemap.removed_at.is_(None),
+        )
+        .values(removed_at=now)
+    )
+
     await session.commit()
     return [sitemap_ids[sitemap.url] for sitemap in found if sitemap.parent_url is None]
+
+
+async def _dropped_sitemaps(
+    session: AsyncSession, found: list[FoundSitemap], sitemap_ids: dict[str, int]
+) -> list[int]:
+    """The sitemaps that an index read just now no longer lists, with any sitemaps inside them.
+    They count as read and empty, so none of their URLs is listed any more. An index that
+    couldn't be read isn't known to be an index, so it drops nothing."""
+    dropped_ids: list[int] = []
+    for sitemap in found:
+        if not sitemap.is_index:
+            continue
+        dropped = await session.scalars(
+            select(Sitemap.id).where(
+                Sitemap.parent_id == sitemap_ids[sitemap.url], Sitemap.url.not_in(sitemap.children)
+            )
+        )
+        tree_ids = [tree_sitemap.id for tree_sitemap in await sitemap_tree(session, list(dropped))]
+        if tree_ids:
+            await session.execute(
+                update(Sitemap)
+                .where(Sitemap.id.in_(tree_ids))
+                .values(entry_count=0, last_error=f"Dropped from {sitemap.url}")
+            )
+        dropped_ids += tree_ids
+    return dropped_ids
 
 
 async def build_preview(
@@ -179,7 +232,7 @@ async def build_preview(
     ids = [sitemap.id for sitemap in sitemaps]
     first_urls, last_urls = await _first_and_last_urls(session, ids)
 
-    listed = PageSitemap.sitemap_id.in_(ids)
+    listed = and_(PageSitemap.sitemap_id.in_(ids), PageSitemap.removed_at.is_(None))
     unique_urls = (
         await session.scalar(select(func.count(distinct(PageSitemap.page_id))).where(listed)) or 0
     )
@@ -240,7 +293,8 @@ async def confirm_ingestion(session: AsyncSession, root_ids: list[int]) -> Inges
     await session.flush()  # gives the run its id
 
     listed_pages = select(PageSitemap.page_id).where(
-        PageSitemap.sitemap_id.in_([sitemap.id for sitemap in sitemaps])
+        PageSitemap.sitemap_id.in_([sitemap.id for sitemap in sitemaps]),
+        PageSitemap.removed_at.is_(None),
     )
     queued = await session.execute(
         update(Page)
@@ -303,7 +357,7 @@ async def _first_and_last_urls(
             .label("from_end"),
         )
         .join(Page, Page.id == PageSitemap.page_id)
-        .where(PageSitemap.sitemap_id.in_(sitemap_ids))
+        .where(PageSitemap.sitemap_id.in_(sitemap_ids), PageSitemap.removed_at.is_(None))
         .subquery()
     )
     rows = await session.execute(

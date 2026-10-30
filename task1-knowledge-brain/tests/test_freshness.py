@@ -17,9 +17,11 @@ from app.crawler.sitemap import discover
 from app.db import get_session
 from app.freshness import RETRY_AFTER, check_sitemap, claim_due_sitemap
 from app.ingest import confirm_ingestion, save_discovery
+from app.jobs.worker import claim_next_page, process_page
 from app.models import (
     IngestionRun,
     Page,
+    PageSitemap,
     PageStatus,
     Retention,
     RunKind,
@@ -28,6 +30,7 @@ from app.models import (
     Sitemap,
 )
 from tests.test_sitemap import fake_site, index, urlset
+from tests.test_worker import FakeFetcher, html
 
 pytestmark = pytest.mark.db  # every test here needs Postgres
 
@@ -47,11 +50,13 @@ async def fake_web(
         yield client, RobotsRules(client, "TestBot/1.0", limiter), limiter
 
 
-async def crawled(session: AsyncSession, files: Files) -> Sitemap:
+async def crawled(
+    session: AsyncSession, files: Files, retention: Retention = Retention.AFTER_2
+) -> Sitemap:
     """A sitemap whose first crawl has finished, every page active, and whose check is due."""
     async with fake_web(files) as (client, robots, limiter):
         found = await discover([SITEMAP], client, robots, limiter)
-    [root_id] = await save_discovery(session, found, Schedule.DAILY, Retention.AFTER_2)
+    [root_id] = await save_discovery(session, found, Schedule.DAILY, retention)
     await confirm_ingestion(session, [root_id])
     await session.execute(update(Page).values(status=PageStatus.ACTIVE, fetch_requested_at=None))
     sitemap = await session.get(Sitemap, root_id)
@@ -67,6 +72,18 @@ async def claim_and_check(session: AsyncSession, files: Files) -> IngestionRun |
     assert sitemap is not None
     async with fake_web(files) as (client, robots, limiter):
         return await check_sitemap(session, sitemap, client, robots, limiter)
+
+
+async def next_check(session: AsyncSession, files: Files) -> IngestionRun | None:
+    """The last crawl has finished and the next check is due: run it against the fake site."""
+    await session.execute(update(Page).values(fetch_requested_at=None))
+    await session.execute(
+        update(Sitemap)
+        .where(Sitemap.parent_id.is_(None))
+        .values(next_check_at=datetime.now(UTC) - timedelta(minutes=1))
+    )
+    await session.commit()
+    return await claim_and_check(session, files)
 
 
 async def pages_by_url(session: AsyncSession) -> dict[str, Page]:
@@ -155,6 +172,8 @@ async def test_a_broken_sitemap_inside_an_index_keeps_its_counts_and_pages(
     run = await claim_and_check(db_session, {SITEMAP: index(a, b), a: urlset(P1, P2), b: 500})
 
     assert run is not None and run.total_pages == 3  # b's page is fetched again all the same
+    pages = await pages_by_url(db_session)
+    assert pages[P3].missing_count == 0  # an unreadable sitemap never makes a URL look gone
     broken = (
         await db_session.scalars(
             select(Sitemap).where(Sitemap.url == b).execution_options(populate_existing=True)
@@ -224,3 +243,101 @@ async def test_check_now(session_factory: async_sessionmaker[AsyncSession]) -> N
     async with session_factory() as session:  # the worker picks it up at its next look
         claimed = await claim_due_sitemap(session)
     assert claimed is not None and claimed.id == sitemap.id
+
+
+# --- Retention: missing URLs, the archive, and URLs that come back ---------------------------
+
+
+@pytest.mark.parametrize(
+    ("retention", "checks"), [(Retention.IMMEDIATE, 1), (Retention.AFTER_2, 2)]
+)
+async def test_a_missing_url_is_archived_when_the_rule_says_and_never_deleted(
+    db_session: AsyncSession, retention: Retention, checks: int
+) -> None:
+    await crawled(db_session, {SITEMAP: urlset(P1, P2)}, retention)
+
+    for missed in range(1, checks):  # the checks the rule still allows
+        await next_check(db_session, {SITEMAP: urlset(P1)})
+        page = (await pages_by_url(db_session))[P2]
+        # Kept, and fetched again: a page deleted from the site would leave search on its 404
+        assert (page.status, page.missing_count) == (PageStatus.ACTIVE, missed)
+        assert page.fetch_requested_at is not None
+    await next_check(db_session, {SITEMAP: urlset(P1)})
+
+    page = (await pages_by_url(db_session))[P2]
+    assert (page.status, page.missing_count) == (PageStatus.ARCHIVED, checks)
+    assert page.fetch_requested_at is None
+    assert page.archived_at is not None  # moved to the archive, not deleted
+
+
+async def test_missed_checks_count_only_in_a_row(db_session: AsyncSession) -> None:
+    await crawled(db_session, {SITEMAP: urlset(P1, P2)}, Retention.AFTER_2)
+
+    await next_check(db_session, {SITEMAP: urlset(P1)})
+    await next_check(db_session, {SITEMAP: urlset(P1, P2)})  # back again
+    await next_check(db_session, {SITEMAP: urlset(P1)})
+
+    page = (await pages_by_url(db_session))[P2]
+    assert (page.status, page.missing_count) == (PageStatus.ACTIVE, 1)
+
+
+async def test_an_archived_url_that_comes_back_is_fetched_and_made_active(
+    db_session: AsyncSession,
+) -> None:
+    await crawled(db_session, {SITEMAP: urlset(P1, P2)}, Retention.IMMEDIATE)
+    await next_check(db_session, {SITEMAP: urlset(P1)})
+
+    run = await next_check(db_session, {SITEMAP: urlset(P1, P2)})
+
+    assert run is not None and run.total_pages == 2
+    page = (await pages_by_url(db_session))[P2]
+    # Out of search until a fetch shows it's really back
+    assert (page.status, page.missing_count, page.run_id) == (PageStatus.ARCHIVED, 0, run.id)
+    await db_session.execute(update(Page).where(Page.url != P2).values(fetch_requested_at=None))
+    await db_session.commit()
+    claimed = await claim_next_page(db_session)
+    assert claimed is not None and claimed.url == P2
+    await process_page(db_session, FakeFetcher(html()), claimed)
+    assert claimed.status == PageStatus.ACTIVE
+
+
+async def test_a_url_dropped_by_one_sitemap_but_listed_by_another_is_not_missing(
+    db_session: AsyncSession,
+) -> None:
+    a, b = f"{SITE}/a.xml", f"{SITE}/b.xml"
+    await crawled(
+        db_session,
+        {SITEMAP: index(a, b), a: urlset(P1, P2), b: urlset(P2, P3)},
+        Retention.IMMEDIATE,
+    )
+
+    await next_check(db_session, {SITEMAP: index(a, b), a: urlset(P1), b: urlset(P2, P3)})
+
+    page = (await pages_by_url(db_session))[P2]
+    assert (page.status, page.missing_count) == (PageStatus.ACTIVE, 0)
+    rows = await db_session.execute(
+        select(Sitemap.url, PageSitemap.removed_at)
+        .join(PageSitemap, PageSitemap.sitemap_id == Sitemap.id)
+        .where(PageSitemap.page_id == page.id)
+    )
+    # a's row stays, marked removed, as the record that a listed it
+    assert {url: removed_at is not None for url, removed_at in rows} == {a: True, b: False}
+
+
+async def test_a_sitemap_dropped_from_its_index_takes_its_urls_with_it(
+    db_session: AsyncSession,
+) -> None:
+    a, b = f"{SITE}/a.xml", f"{SITE}/b.xml"
+    await crawled(
+        db_session, {SITEMAP: index(a, b), a: urlset(P1, P2), b: urlset(P3)}, Retention.IMMEDIATE
+    )
+
+    await next_check(db_session, {SITEMAP: index(a), a: urlset(P1, P2)})
+
+    assert (await pages_by_url(db_session))[P3].status == PageStatus.ARCHIVED
+    dropped = (
+        await db_session.scalars(
+            select(Sitemap).where(Sitemap.url == b).execution_options(populate_existing=True)
+        )
+    ).one()
+    assert (dropped.entry_count, dropped.last_error) == (0, f"Dropped from {SITEMAP}")

@@ -99,6 +99,22 @@ async def test_adding_a_sitemap_again_keeps_pages_already_crawled(db_session: As
 
 
 @pytest.mark.db
+async def test_a_url_that_a_sitemap_no_longer_lists_leaves_the_preview(
+    db_session: AsyncSession,
+) -> None:
+    await save_discovery(db_session, found_sitemaps(), Schedule.DAILY, Retention.AFTER_2)
+    again = found_sitemaps()
+    again[2].pages = [PageEntry(P2, None)]  # B drops P3
+
+    root_ids = await save_discovery(db_session, again, Schedule.DAILY, Retention.AFTER_2)
+    preview = await build_preview(db_session, root_ids, requests_per_second=1.0)
+
+    assert (preview.total_urls, preview.unique_urls, preview.duplicate_urls) == (4, 2, 2)
+    by_url = {sitemap.url: sitemap for sitemap in preview.sitemaps}
+    assert (by_url[B].first_url, by_url[B].last_url) == (P2, P2)
+
+
+@pytest.mark.db
 async def test_api_add_preview_and_confirm(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
