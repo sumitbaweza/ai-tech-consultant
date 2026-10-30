@@ -29,6 +29,29 @@ Windows has no `make` built in, so here is each target without it:
 
 Tests, lint and evals run on your machine and need [uv](https://docs.astral.sh/uv/). `make eval-check` checks the eval cases against the crawled pages for free; `make eval` runs them through the real answer path, needs both API keys, and saves the results in `task1-knowledge-brain/evals/results/`.
 
+## Use the Brain from Claude (MCP)
+
+`make up` also starts `brain-mcp`, which offers the Brain as three MCP tools: `kb_ask` (an answer with citations), `kb_search` (matching chunks, no LLM) and `kb_get_article` (one article in full). Each tool calls the Brain's API with the first key in `BRAIN_API_KEYS`, so the API's rules apply.
+
+- **Claude Code**, over HTTP:
+
+  ```bash
+  claude mcp add --transport http knowledge-brain http://127.0.0.1:8001/mcp
+  ```
+
+- **Claude Desktop**, over stdio: add this to `claude_desktop_config.json`, with your own path to the repo. It needs uv, and the API running.
+
+  ```json
+  {
+    "mcpServers": {
+      "knowledge-brain": {
+        "command": "uv",
+        "args": ["run", "--directory", "C:/path/to/repo/task1-knowledge-brain", "python", "-m", "app.mcp_server"]
+      }
+    }
+  }
+  ```
+
 ## Layout
 
 | Folder | What it holds | Language |

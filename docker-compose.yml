@@ -16,6 +16,8 @@ x-brain: &brain
     ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     # May be empty: nothing gets embedded, and search falls back to exact words
     VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+    # Where the MCP server finds the API, inside the Compose network
+    BRAIN_API_URL: http://brain-api:8000
 
 services:
   postgres:
@@ -71,6 +73,17 @@ services:
     depends_on:
       brain-migrate:
         condition: service_completed_successfully
+    restart: unless-stopped
+
+  # The Brain as MCP tools for agents: http://localhost:8001/mcp
+  brain-mcp:
+    <<: *brain
+    command: ["python", "-m", "app.mcp_server", "--http"]
+    ports:
+      - "127.0.0.1:8001:8001"
+    depends_on:
+      brain-api:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
