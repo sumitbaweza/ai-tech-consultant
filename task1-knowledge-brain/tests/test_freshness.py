@@ -29,6 +29,7 @@ from app.models import (
     Schedule,
     Sitemap,
 )
+from app.progress import knowledge_base_stats
 from tests.test_sitemap import fake_site, index, urlset
 from tests.test_worker import FakeFetcher, html
 
@@ -143,6 +144,11 @@ async def test_a_check_adds_new_urls_and_fetches_known_pages_again(
     assert about(sitemap.next_check_at, started + timedelta(days=1))
     assert about(sitemap.last_checked_at, started)
     assert sitemap.entry_count == 2
+    # The dashboard shows this check as the latest run, with what it found
+    stats = await knowledge_base_stats(db_session)
+    assert stats.last_run is not None and stats.last_run.run_id == run.id
+    summary = stats.last_run.summary
+    assert (summary.new_pages, summary.missing_pages, summary.archived_pages) == (1, 0, 0)
 
 
 async def test_an_unreadable_sitemap_is_tried_again_in_an_hour(db_session: AsyncSession) -> None:
@@ -262,12 +268,13 @@ async def test_a_missing_url_is_archived_when_the_rule_says_and_never_deleted(
         # Kept, and fetched again: a page deleted from the site would leave search on its 404
         assert (page.status, page.missing_count) == (PageStatus.ACTIVE, missed)
         assert page.fetch_requested_at is not None
-    await next_check(db_session, {SITEMAP: urlset(P1)})
+    run = await next_check(db_session, {SITEMAP: urlset(P1)})
 
     page = (await pages_by_url(db_session))[P2]
     assert (page.status, page.missing_count) == (PageStatus.ARCHIVED, checks)
     assert page.fetch_requested_at is None
     assert page.archived_at is not None  # moved to the archive, not deleted
+    assert run is not None and (run.missing_pages, run.archived_pages) == (1, 1)
 
 
 async def test_missed_checks_count_only_in_a_row(db_session: AsyncSession) -> None:
@@ -289,7 +296,7 @@ async def test_an_archived_url_that_comes_back_is_fetched_and_made_active(
 
     run = await next_check(db_session, {SITEMAP: urlset(P1, P2)})
 
-    assert run is not None and run.total_pages == 2
+    assert run is not None and (run.total_pages, run.restored_pages) == (2, 1)
     page = (await pages_by_url(db_session))[P2]
     # Out of search until a fetch shows it's really back
     assert (page.status, page.missing_count, page.run_id) == (PageStatus.ARCHIVED, 0, run.id)

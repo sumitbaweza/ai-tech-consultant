@@ -201,6 +201,14 @@ class IngestionRun(Base):
     sitemap_ids: Mapped[list[int]] = mapped_column(ARRAY(Integer))
     # Pages this run queued; progress is how many of them are done
     total_pages: Mapped[int] = mapped_column(server_default="0")
+    # What the run found. A first crawl's pages are all new. A scheduled check also counts the
+    # pages whose content changed, the pages no sitemap lists any more, and the pages it
+    # archived or brought back from the archive.
+    new_pages: Mapped[int] = mapped_column(server_default="0")
+    changed_pages: Mapped[int] = mapped_column(server_default="0")
+    missing_pages: Mapped[int] = mapped_column(server_default="0")
+    archived_pages: Mapped[int] = mapped_column(server_default="0")
+    restored_pages: Mapped[int] = mapped_column(server_default="0")
     started_at: Mapped[datetime] = mapped_column(server_default=func.now())
     finished_at: Mapped[datetime | None]
     error: Mapped[str | None]

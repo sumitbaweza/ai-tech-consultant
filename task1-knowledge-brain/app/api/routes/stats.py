@@ -10,5 +10,6 @@ router = APIRouter(tags=["stats"])
 
 @router.get("/stats")
 async def stats(session: SessionDep) -> Stats:
-    """Processed, embedded, failed and pending pages, duplicate URLs skipped, and the last sync."""
+    """Processed, embedded, failed and pending pages, duplicate URLs skipped, the last sync, and
+    the latest run with what it found."""
     return await knowledge_base_stats(session)

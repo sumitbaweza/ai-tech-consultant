@@ -303,6 +303,7 @@ async def confirm_ingestion(session: AsyncSession, root_ids: list[int]) -> Inges
         .execution_options(synchronize_session=False)
     )
     run.total_pages = cast(CursorResult[Any], queued).rowcount
+    run.new_pages = run.total_pages  # a first crawl only fetches pages it hasn't got
     now = datetime.now(UTC)
     if run.total_pages == 0:  # everything was already in the knowledge base
         run.status = RunStatus.DONE

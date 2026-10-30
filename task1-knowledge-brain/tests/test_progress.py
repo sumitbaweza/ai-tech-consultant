@@ -74,6 +74,7 @@ async def test_stats_count_pages_duplicates_and_the_last_sync(db_session: AsyncS
     assert (stats.failed, stats.pending) == (1, 1)
     assert stats.duplicates_skipped == 1  # 5 entries, 4 distinct pages
     assert stats.last_sync == now
+    assert stats.last_run is None  # no crawl has run yet
 
 
 async def test_progress_measures_speed_and_time_left(db_session: AsyncSession) -> None:
@@ -116,7 +117,12 @@ async def test_progress_measures_speed_and_time_left(db_session: AsyncSession) -
 
     progress = await run_progress(db_session, run.id)
 
-    assert (progress.total, progress.done, progress.remaining) == (3, 2, 1)
+    assert (progress.kind, progress.total, progress.done, progress.remaining) == (
+        RunKind.INITIAL,
+        3,
+        2,
+        1,
+    )
     assert progress.by_status == {"active": 2, "pending": 1}
     assert progress.pages_per_minute == 0.4  # 2 pages in the last 5 minutes
     assert progress.estimate is not None and progress.estimate.minutes_to_finish == 2.5

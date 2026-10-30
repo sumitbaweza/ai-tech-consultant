@@ -128,7 +128,12 @@ async def check_sitemap(
 
     retained = await _apply_retention(session, in_tree, sitemap.retention, run)
     added, again = await _queue_pages(session, in_tree, run)
-    run.total_pages = retained.restored + added + again
+    # The summary of what the check found; changed_pages is counted later, as pages are fetched
+    run.new_pages = added
+    run.missing_pages = retained.missing
+    run.archived_pages = retained.archived
+    run.restored_pages = retained.restored
+    run.total_pages = added + again + retained.restored
     if run.total_pages == 0:
         run.status, run.finished_at = RunStatus.DONE, datetime.now(UTC)
     sitemap.next_check_at = started + sitemap.schedule.interval

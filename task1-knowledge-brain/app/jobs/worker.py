@@ -163,6 +163,14 @@ async def _save_content(session: AsyncSession, page: Page, fetched: Fetched) -> 
     page.etag, page.last_modified = fetched.etag, fetched.last_modified
 
     if parsed.content_hash != page.content_hash:
+        if page.content_hash is not None and page.run_id is not None:
+            # A real change, not a first fetch: count it in the run's summary. One UPDATE adds
+            # 1 in the database, so two workers counting at once can't lose a count.
+            await session.execute(
+                update(IngestionRun)
+                .where(IngestionRun.id == page.run_id)
+                .values(changed_pages=IngestionRun.changed_pages + 1)
+            )
         page.content_md = parsed.markdown
         page.content_hash = parsed.content_hash
         session.add(

@@ -2,19 +2,32 @@
 
 from datetime import UTC, datetime, timedelta
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingest import Estimate, estimate
-from app.models import IngestionRun, Page, PageSitemap, PageStatus, RunStatus, Sitemap
+from app.models import IngestionRun, Page, PageSitemap, PageStatus, RunKind, RunStatus, Sitemap
 
 # Speed is measured over the last few minutes, so the estimate follows the real pace
 SPEED_WINDOW = timedelta(minutes=5)
 
 
+class RunSummary(BaseModel):
+    """What a run found. A first crawl's pages are all new."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    new_pages: int
+    changed_pages: int  # content changed since the last fetch; counted as pages are fetched
+    missing_pages: int  # no sitemap lists them any more
+    archived_pages: int  # missing for as many checks as the retention rule allows
+    restored_pages: int  # archived pages that a sitemap lists again
+
+
 class Progress(BaseModel):
     run_id: int
+    kind: RunKind  # initial: the first crawl; refresh: a scheduled check
     status: RunStatus
     total: int  # pages this run queued
     done: int  # fetched, or given up on
@@ -22,6 +35,7 @@ class Progress(BaseModel):
     by_status: dict[str, int]  # where this run's pages are now
     pages_per_minute: float  # measured over the last 5 minutes
     estimate: Estimate | None  # time left at that speed; None while there's no speed yet
+    summary: RunSummary
     started_at: datetime
     finished_at: datetime | None
 
@@ -38,6 +52,7 @@ class Stats(BaseModel):
     archived: int
     last_sync: datetime | None
     by_status: dict[str, int]
+    last_run: Progress | None  # the latest run, a first crawl or a scheduled check
 
 
 async def run_progress(session: AsyncSession, run_id: int) -> Progress:
@@ -72,6 +87,7 @@ async def run_progress(session: AsyncSession, run_id: int) -> Progress:
 
     return Progress(
         run_id=run.id,
+        kind=run.kind,
         status=run.status,
         total=run.total_pages,
         done=max(run.total_pages - remaining, 0),
@@ -81,6 +97,7 @@ async def run_progress(session: AsyncSession, run_id: int) -> Progress:
         estimate=estimate(remaining, pages_per_minute, now)
         if remaining and pages_per_minute > 0
         else None,
+        summary=RunSummary.model_validate(run),
         started_at=run.started_at,
         finished_at=run.finished_at,
     )
@@ -120,6 +137,7 @@ async def knowledge_base_stats(session: AsyncSession) -> Stats:
     )
     last_fetch = await session.scalar(select(func.max(Page.fetched_at)))
     last_check = await session.scalar(select(func.max(Sitemap.last_checked_at)))
+    last_run_id = await session.scalar(select(func.max(IngestionRun.id)))
 
     return Stats(
         total_pages=total,
@@ -131,4 +149,5 @@ async def knowledge_base_stats(session: AsyncSession) -> Stats:
         archived=by_status.get(PageStatus.ARCHIVED.value, 0),
         last_sync=max((time for time in (last_fetch, last_check) if time), default=None),
         by_status=by_status,
+        last_run=await run_progress(session, last_run_id) if last_run_id else None,
     )

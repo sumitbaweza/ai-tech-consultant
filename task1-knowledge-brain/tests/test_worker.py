@@ -162,6 +162,18 @@ async def test_a_new_screenshot_keeps_the_other_images_descriptions(
     assert await db_session.scalar(select(func.count()).select_from(PageVersion)) == 2
 
 
+async def test_a_changed_page_counts_in_its_runs_summary(db_session: AsyncSession) -> None:
+    page = await queued_page(db_session)
+    await process_page(db_session, FakeFetcher(html()), page)  # a first fetch isn't a change
+
+    await queue_again(db_session, page)
+    changed = ARTICLE.replace(b"222/edit-window", b"444/new-window")
+    await process_page(db_session, FakeFetcher(html(changed)), page)
+
+    run = await db_session.get(IngestionRun, page.run_id, populate_existing=True)
+    assert run is not None and run.changed_pages == 1
+
+
 async def test_304_keeps_the_content(db_session: AsyncSession) -> None:
     page = await queued_page(db_session)
     await process_page(db_session, FakeFetcher(html()), page)
