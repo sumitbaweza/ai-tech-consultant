@@ -18,6 +18,7 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 
+from app.api_client import api_key, error_reason
 from app.config import Settings, get_settings
 
 INSTRUCTIONS = """Answers questions about the Brilliant Directories help center. Use kb_ask for
@@ -74,27 +75,15 @@ async def _call(
         raise ToolError(f"The Brain's API can't be reached: {error}") from error
     if response.status_code >= 400:
         raise ToolError(
-            f"The Brain's API answered HTTP {response.status_code}: {_reason(response)}"
+            f"The Brain's API answered HTTP {response.status_code}: {error_reason(response)}"
         )
     return cast(dict[str, Any], response.json())
 
 
-def _reason(response: httpx2.Response) -> str:
-    """FastAPI puts the reason in "detail"; for anything else, the start of the body."""
-    try:
-        body: object = response.json()
-    except ValueError:
-        body = None
-    if isinstance(body, dict) and "detail" in body:
-        return str(cast(dict[str, object], body)["detail"])
-    return response.text[:200]
-
-
 def brain_client(settings: Settings) -> httpx2.AsyncClient:
-    keys = [key.strip() for key in settings.brain_api_keys.get_secret_value().split(",")]
     return httpx2.AsyncClient(
         base_url=settings.brain_api_url,
-        headers={"X-API-Key": keys[0]},
+        headers={"X-API-Key": api_key(settings)},
         timeout=httpx2.Timeout(120.0),  # an answer can take Sonnet a while
     )
 

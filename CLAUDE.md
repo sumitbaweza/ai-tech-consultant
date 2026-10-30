@@ -75,7 +75,14 @@ When the PDFs and these notes disagree, the PDFs win. Live, editable copy of the
 
 ## Status (Oct 30, 2026, Day 1)
 
-- The 4-day clock started on Oct 30, 2026: today is Day 1. Task 1 steps 1 to 8 are written and tested: skeleton, Claude wrapper, sitemap discovery, polite crawler (first full crawl done: 1,700 pages, 6,458 screenshots), screenshot descriptions, chunks with Voyage embeddings and hybrid search, and `/v1/ask` with citations. Real descriptions, embeddings and answers wait for `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY` in `.env`. Next: the seed snapshot and the first 15 Task 1 eval questions.
+- The 4-day clock started on Oct 30, 2026: today is Day 1. Task 1 is written and tested, each part committed:
+  - The Day 1 plan: skeleton, Claude wrapper, sitemap discovery, polite crawler (first full crawl done: 1,700 pages, 6,458 screenshots), screenshot descriptions, chunks with Voyage embeddings and hybrid search, and `/v1/ask` with citations.
+  - The eval harness: `evals/cases.json` (3 example cases), `make eval-check`, `make eval`, and `make eval-experts` (the expert replay).
+  - Day 2's freshness, done early: scheduled sitemap checks with `POST /v1/sitemaps/{id}/check`, retention rules that archive missing URLs and restore ones that come back, a summary per run, change history with diffs, and the archive list. Decided: a 404 leaves answers at once instead of counting toward the retention rule. The first scheduled check ran on Day 1: 1,700 pages fetched again, none changed.
+  - The expert loop: an unanswered question opens an expert task (a repeat counts on the same task), and the expert's answer becomes an `expert` page that `/v1/ask` cites with `origin: expert`.
+  - The MCP server, `brain-mcp` (`kb_ask`, `kb_search`, `kb_get_article`), on `mcp` 2.3. `check_capability` comes with `/v1/capabilities/check` on Day 3.
+- In progress: the Streamlit screens, `brain-ui` at http://localhost:8501, with sign-in from `BRAIN_UI_USERS`.
+- Waiting: `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY` in `.env` (real descriptions, embeddings, answers and evals need them), then the seed snapshot; the first 15 Task 1 eval questions.
 - Found on Day 1:
   - The sitemap is one flat `urlset` with 1,700 URLs: 1,541 articles, 145 folders, 12 categories and 2 index pages. Every URL has a `lastmod`. The code still handles nested sitemaps, because test 2 asks for it.
   - robots.txt disallows `/support/search`, `/support/login`, `/helpdesk/` (attachments allowed) and `/*/hit$`, a view-counter image in every article that the parser must skip.

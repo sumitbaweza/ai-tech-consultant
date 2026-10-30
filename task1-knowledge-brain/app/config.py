@@ -30,9 +30,12 @@ class Settings(BaseSettings):
 
     # Comma-separated keys allowed to call /v1, sent in the X-API-Key header
     brain_api_keys: SecretStr = SecretStr("")
-    # Where the MCP server finds the API: in Compose, the API container by name; run on this
-    # computer, the port Compose publishes
+    # Where the MCP server and the screens find the API: in Compose, the API container by name;
+    # run on this computer, the port Compose publishes
     brain_api_url: str = "http://127.0.0.1:8000"
+    # Who may sign in to the screens: comma-separated name:salt:hash entries, scrypt-hashed.
+    # `uv run python -m ui.passwords <name>` makes one.
+    brain_ui_users: SecretStr = SecretStr("")
 
     # Claude. Empty until you add it to .env; calls fail with an auth error until then.
     anthropic_api_key: SecretStr = SecretStr("")

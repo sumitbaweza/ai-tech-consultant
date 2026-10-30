@@ -16,8 +16,10 @@ x-brain: &brain
     ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     # May be empty: nothing gets embedded, and search falls back to exact words
     VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
-    # Where the MCP server finds the API, inside the Compose network
+    # Where the MCP server and the screens find the API, inside the Compose network
     BRAIN_API_URL: http://brain-api:8000
+    # Who may sign in to the screens. May be empty: then nobody can, and the screen says how
+    BRAIN_UI_USERS: ${BRAIN_UI_USERS:-}
 
 services:
   postgres:
@@ -73,6 +75,28 @@ services:
     depends_on:
       brain-migrate:
         condition: service_completed_successfully
+    restart: unless-stopped
+
+  # The Brain's screens, behind a sign-in: http://localhost:8501
+  brain-ui:
+    <<: *brain
+    command:
+      - python
+      - -m
+      - streamlit
+      - run
+      - ui/main.py
+      - --server.address=0.0.0.0
+      - --server.port=8501
+      - --server.headless=true
+      - --browser.gatherUsageStats=false
+      # The menu a viewer needs, without the developer options and the Deploy button
+      - --client.toolbarMode=viewer
+    ports:
+      - "127.0.0.1:8501:8501"
+    depends_on:
+      brain-api:
+        condition: service_healthy
     restart: unless-stopped
 
   # The Brain as MCP tools for agents: http://localhost:8001/mcp

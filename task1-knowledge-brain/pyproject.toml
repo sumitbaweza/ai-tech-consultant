@@ -17,6 +17,7 @@ dependencies = [
     "pydantic-settings>=2.16.2",
     "pyyaml>=6.0.3",
     "sqlalchemy[asyncio]>=2.1.6",
+    "streamlit>=1.66.1",
     "uvicorn[standard]>=0.54.0",
 ]
 
@@ -29,7 +30,7 @@ target-version = "py312"
 select = ["E", "W", "F", "I", "B", "UP", "SIM", "ASYNC", "RUF"]
 
 [tool.pyright]
-include = ["app", "evals", "migrations", "tests"]
+include = ["app", "evals", "migrations", "tests", "ui"]
 typeCheckingMode = "strict"
 pythonVersion = "3.12"
 venvPath = "."

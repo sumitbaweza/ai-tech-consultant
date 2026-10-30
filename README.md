@@ -10,7 +10,8 @@ You need Docker Desktop (on Windows, with WSL2).
 
 1. `cp .env.example .env`, then add your `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY`.
 2. `make up`
-3. Open the Brain's API docs at http://localhost:8000/docs. Use a key from `BRAIN_API_KEYS` in `.env`.
+3. Open the Brain's screens at http://localhost:8501 and sign in. The example user in `.env.example` is `admin` with the password `brain-demo`; make your own with `uv run --directory task1-knowledge-brain python -m ui.passwords <name>`.
+4. The Brain's API docs are at http://localhost:8000/docs. Use a key from `BRAIN_API_KEYS` in `.env`.
 
 Windows has no `make` built in, so here is each target without it:
 
