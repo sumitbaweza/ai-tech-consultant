@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.config import Settings, get_settings
 from app.crawler.http import make_client
 from app.db import SessionFactory, get_session
+from app.llm import Claude, get_claude
+from app.rag.embed import Voyage, get_voyage
 
 # Declared as a security scheme, so /docs shows an Authorize button for the key
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -51,3 +53,18 @@ async def get_crawler_client(settings: SettingsDep) -> AsyncIterator[httpx2.Asyn
 
 
 CrawlerClientDep = Annotated[httpx2.AsyncClient, Depends(get_crawler_client)]
+
+
+def require_claude(settings: SettingsDep) -> Claude:
+    """The shared Claude client. A clear 503 when ANTHROPIC_API_KEY isn't set, not a crash."""
+    if not settings.anthropic_api_key.get_secret_value():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Answering needs ANTHROPIC_API_KEY in .env",
+        )
+    return get_claude()
+
+
+ClaudeDep = Annotated[Claude, Depends(require_claude)]
+# None when VOYAGE_API_KEY isn't set: search then ranks by exact words only
+VoyageDep = Annotated[Voyage | None, Depends(get_voyage)]

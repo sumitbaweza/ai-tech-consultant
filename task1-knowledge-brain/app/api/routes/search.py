@@ -1,20 +1,18 @@
 """Search the knowledge base: no LLM call, so it's fast and cheap."""
 
 import logging
-from typing import Annotated, Literal
+from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from app.api.deps import SessionDep
-from app.rag.embed import EmbeddingError, Voyage, get_voyage
+from app.api.deps import SessionDep, VoyageDep
+from app.rag.embed import EmbeddingError
 from app.rag.search import SearchHit, search
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["search"])
-
-VoyageDep = Annotated[Voyage | None, Depends(get_voyage)]
 
 
 class SearchRequest(BaseModel):

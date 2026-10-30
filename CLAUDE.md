@@ -75,7 +75,7 @@ When the PDFs and these notes disagree, the PDFs win. Live, editable copy of the
 
 ## Status (Oct 30, 2026, Day 1)
 
-- The 4-day clock started on Oct 30, 2026: today is Day 1. Task 1 steps 1 to 5 are done (skeleton, Claude wrapper, sitemap discovery, polite crawler), and the first full crawl started on Day 1. Next: screenshot descriptions, chunks and embeddings with hybrid search, then `/v1/ask`.
+- The 4-day clock started on Oct 30, 2026: today is Day 1. Task 1 steps 1 to 8 are written and tested: skeleton, Claude wrapper, sitemap discovery, polite crawler (first full crawl done: 1,700 pages, 6,458 screenshots), screenshot descriptions, chunks with Voyage embeddings and hybrid search, and `/v1/ask` with citations. Real descriptions, embeddings and answers wait for `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY` in `.env`. Next: the seed snapshot and the first 15 Task 1 eval questions.
 - Found on Day 1:
   - The sitemap is one flat `urlset` with 1,700 URLs: 1,541 articles, 145 folders, 12 categories and 2 index pages. Every URL has a `lastmod`. The code still handles nested sitemaps, because test 2 asks for it.
   - robots.txt disallows `/support/search`, `/support/login`, `/helpdesk/` (attachments allowed) and `/*/hit$`, a view-counter image in every article that the parser must skip.
