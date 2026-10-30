@@ -21,6 +21,25 @@ x-brain: &brain
     # Who may sign in to the screens. May be empty: then nobody can, and the screen says how
     BRAIN_UI_USERS: ${BRAIN_UI_USERS:-}
 
+# Shared by both Inbox Agent services: one image, the same settings
+x-inbox: &inbox
+  build: ./task2-inbox-agent
+  image: ai-tech-consultant/inbox:dev
+  environment:
+    DB_HOST: postgres
+    INBOX_DB_PASSWORD: ${INBOX_DB_PASSWORD:?Set INBOX_DB_PASSWORD in .env}
+    # May be empty here: then only the inbox fails, with a message saying how to set it
+    AUTH_SECRET: ${AUTH_SECRET:-}
+    # Behind Docker's port mapping, Auth.js has to trust the Host header it receives
+    AUTH_TRUST_HOST: "true"
+    # fixtures (the default) or gmail
+    INBOX_MODE: ${INBOX_MODE:-fixtures}
+    # May be empty: then fixtures mode has no demo sign-in, and the sign-in page says so
+    INBOX_DEMO_PASSWORD: ${INBOX_DEMO_PASSWORD:-}
+    # May be empty: then there is no Google sign-in
+    GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+    GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+
 services:
   postgres:
     # Postgres 16 with the pgvector extension, pinned so a fresh clone gets the same database.
@@ -108,6 +127,29 @@ services:
     depends_on:
       brain-api:
         condition: service_healthy
+    restart: unless-stopped
+
+  # Applies the inbox's migrations, loads fixtures/emails.json in fixtures mode, then exits
+  inbox-migrate:
+    <<: *inbox
+    command: ["pnpm", "db:setup"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # The Inbox Agent, a Gmail-style app: http://localhost:3000
+  inbox:
+    <<: *inbox
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      inbox-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/signin').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 
 volumes:

@@ -1,0 +1,4 @@
+# pnpm 10 runs no install scripts unless a package is listed here.
+# esbuild (used by tsx, drizzle-kit and vitest) downloads its native binary in one.
+onlyBuiltDependencies:
+  - esbuild

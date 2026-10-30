@@ -1,0 +1,92 @@
+{
+  "mailbox": "support@directory-demo.test",
+  "emails": [
+    {
+      "id": "fx-001",
+      "folder": "inbox",
+      "from": { "name": "Maria Lopez", "address": "maria.lopez@example.com" },
+      "to": ["support@directory-demo.test"],
+      "subject": "How do I change the logo in my header?",
+      "body": "Hi team,\n\nI uploaded a new logo last week but the old one still shows in the header on my directory. Where do I change it, and is there a recommended size?\n\nThanks,\nMaria",
+      "receivedAt": "2026-10-30T08:12:00Z"
+    },
+    {
+      "id": "fx-002",
+      "folder": "inbox",
+      "from": { "name": "James Carter", "address": "james@carterplumbing.example" },
+      "to": ["support@directory-demo.test"],
+      "subject": "Pointing my own domain at the site",
+      "body": "Hello,\n\nI bought carterpros.com and want my directory to load on it instead of the default address. What DNS records do I need, and will my SSL certificate carry over?\n\nJames",
+      "receivedAt": "2026-10-30T07:45:00Z"
+    },
+    {
+      "id": "fx-003",
+      "folder": "inbox",
+      "from": { "name": "Priya Nair", "address": "priya.nair@example.org" },
+      "to": ["support@directory-demo.test"],
+      "subject": "Refund for the annual plan",
+      "body": "Hi,\n\nI signed up for the annual plan 40 days ago and it isn't working out for our association. I'd like a full refund please.\n\nRegards,\nPriya Nair",
+      "receivedAt": "2026-10-29T16:20:00Z",
+      "isRead": true
+    },
+    {
+      "id": "fx-004",
+      "folder": "inbox",
+      "from": { "name": "Tom Reilly", "address": "tom.reilly@example.net" },
+      "to": ["support@directory-demo.test"],
+      "subject": "Search filters STILL broken",
+      "body": "This is the third time I'm writing. The category filter on my search page shows members from every category no matter what I pick. My members are complaining and I'm paying for this. Fix it today.\n\nTom",
+      "receivedAt": "2026-10-29T11:03:00Z"
+    },
+    {
+      "id": "fx-005",
+      "folder": "inbox",
+      "from": { "name": "Lena Schmidt", "address": "lena.schmidt@example.de" },
+      "to": ["support@directory-demo.test"],
+      "subject": "Frage zum Hauptmenü",
+      "body": "Hallo,\n\nwie kann ich einen neuen Link zum Hauptmenü hinzufügen und die Reihenfolge der Menüpunkte ändern?\n\nViele Grüße\nLena",
+      "receivedAt": "2026-10-28T09:30:00Z"
+    },
+    {
+      "id": "fx-006",
+      "folder": "sent",
+      "threadId": "fx-001",
+      "from": { "name": "Support Team", "address": "support@directory-demo.test" },
+      "to": ["maria.lopez@example.com"],
+      "subject": "Re: How do I change the logo in my header?",
+      "body": "Hi Maria,\n\nThanks for reaching out. We're looking into this and will reply with the exact steps shortly.\n\nThe Support Team",
+      "receivedAt": "2026-10-30T08:40:00Z",
+      "isRead": true
+    },
+    {
+      "id": "fx-007",
+      "folder": "drafts",
+      "threadId": "fx-002",
+      "from": { "name": "Support Team", "address": "support@directory-demo.test" },
+      "to": ["james@carterplumbing.example"],
+      "subject": "Re: Pointing my own domain at the site",
+      "body": "Hi James,\n\nGreat question. To use carterpros.com you'll need to",
+      "receivedAt": "2026-10-30T07:58:00Z",
+      "isRead": true
+    },
+    {
+      "id": "fx-008",
+      "folder": "spam",
+      "from": { "name": "SEO Rankings Pro", "address": "deals@seo-rankings.example" },
+      "to": ["support@directory-demo.test"],
+      "subject": "Get your directory to #1 on Google in 7 days!!!",
+      "body": "Dear website owner,\n\nWe guarantee first page rankings for only $99. Reply now to claim your spot.",
+      "receivedAt": "2026-10-27T22:15:00Z"
+    },
+    {
+      "id": "fx-009",
+      "folder": "trash",
+      "from": { "name": "Newsletter", "address": "news@saas-weekly.example" },
+      "to": ["support@directory-demo.test"],
+      "subject": "This week in SaaS",
+      "body": "Ten tools to grow your membership site this quarter.",
+      "receivedAt": "2026-10-26T06:00:00Z",
+      "isRead": true
+    }
+  ]
+}

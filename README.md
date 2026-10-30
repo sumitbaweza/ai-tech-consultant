@@ -12,6 +12,7 @@ You need Docker Desktop (on Windows, with WSL2).
 2. `make up`
 3. Open the Brain's screens at http://localhost:8501 and sign in. The example user in `.env.example` is `admin` with the password `brain-demo`; make your own with `uv run --directory task1-knowledge-brain python -m ui.passwords <name>`.
 4. The Brain's API docs are at http://localhost:8000/docs. Use a key from `BRAIN_API_KEYS` in `.env`.
+5. Open the Inbox Agent at http://localhost:3000. Without Google settings it runs in fixtures mode, on the emails in `task2-inbox-agent/fixtures/emails.json`: sign in with `INBOX_DEMO_PASSWORD` from `.env` (`inbox-demo` in `.env.example`).
 
 Windows has no `make` built in, so here is each target without it:
 
@@ -27,8 +28,12 @@ Windows has no `make` built in, so here is each target without it:
 | `make eval-check` | `uv run --directory task1-knowledge-brain python -m evals.run --check` |
 | `make eval` | `uv run --directory task1-knowledge-brain python -m evals.run` |
 | `make eval-experts` | `uv run --directory task1-knowledge-brain python -m evals.run --expert-replay` |
+| `make inbox-install` | `pnpm --dir task2-inbox-agent install --frozen-lockfile` |
+| `make inbox-dev` | `pnpm --dir task2-inbox-agent dev` |
+| `make inbox-test` | `pnpm --dir task2-inbox-agent test` |
+| `make inbox-lint` | `pnpm --dir task2-inbox-agent typecheck`, then `pnpm --dir task2-inbox-agent lint` |
 
-Tests, lint and evals run on your machine and need [uv](https://docs.astral.sh/uv/). `make eval-check` checks the eval cases against the crawled pages for free; `make eval` runs them through the real answer path, needs both API keys, and saves the results in `task1-knowledge-brain/evals/results/`.
+Tests, lint and evals run on your machine and need [uv](https://docs.astral.sh/uv/). `make eval-check` checks the eval cases against the crawled pages for free; `make eval` runs them through the real answer path, needs both API keys, and saves the results in `task1-knowledge-brain/evals/results/`. The inbox's checks need Node 22 and pnpm (`npm install -g corepack@latest`, then `corepack enable pnpm`).
 
 ## Use the Brain from Claude (MCP)
 

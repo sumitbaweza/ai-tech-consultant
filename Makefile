@@ -1,6 +1,6 @@
 # Start the system with `make up`. Windows has no `make` built in:
 # paste a target's command lines into PowerShell instead.
-.PHONY: up down logs ps psql test lint format eval eval-check eval-experts
+.PHONY: up down logs ps psql test lint format eval eval-check eval-experts \n	inbox-install inbox-dev inbox-test inbox-lint
 
 # Build and start every service in the background
 up:
@@ -48,3 +48,22 @@ eval:
 # Ask each expert answer's question again: how much the Brain learned. Needs both API keys.
 eval-experts:
 	uv run --directory task1-knowledge-brain python -m evals.run --expert-replay
+
+# --- Task 2: Inbox Agent (needs pnpm: `npm install -g corepack@latest`, `corepack enable pnpm`) ---
+
+# Install the inbox's packages, exactly as pnpm-lock.yaml lists them
+inbox-install:
+	pnpm --dir task2-inbox-agent install --frozen-lockfile
+
+# Run the inbox on this machine with hot reload, against the Postgres in Docker
+inbox-dev:
+	pnpm --dir task2-inbox-agent dev
+
+# Run the inbox's tests. Database tests are skipped unless Postgres is up.
+inbox-test:
+	pnpm --dir task2-inbox-agent test
+
+# Type-check the inbox in strict mode and lint it
+inbox-lint:
+	pnpm --dir task2-inbox-agent typecheck
+	pnpm --dir task2-inbox-agent lint
