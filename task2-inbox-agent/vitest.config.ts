@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { defineConfig } from "vitest/config";
-import { loadRootEnv } from "./src/root-env";
+import { loadRootEnv } from "./src/root-env.ts";
 
 // Same root .env as the app, so database tests find the inbox password
 loadRootEnv();

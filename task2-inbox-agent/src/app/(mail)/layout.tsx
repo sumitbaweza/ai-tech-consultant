@@ -18,7 +18,15 @@ export default async function MailLayout({ children }: { children: ReactNode }) 
 
   return (
     <div className="bg-muted flex h-dvh flex-col">
-      <TopBar user={user} mode={mode} />
+      <TopBar user={user} mode={mode} canSync={mailbox?.provider === "google"} />
+      {mailbox?.lastSyncError && (
+        <p
+          role="alert"
+          className="bg-destructive/10 text-destructive mx-4 mb-2 rounded-lg px-4 py-2 text-sm"
+        >
+          Gmail sync failed: {mailbox.lastSyncError}
+        </p>
+      )}
       <div className="flex min-h-0 flex-1">
         <aside className="w-60 shrink-0 py-2">
           <FolderNav unread={unread} />

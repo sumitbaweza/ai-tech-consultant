@@ -18,3 +18,14 @@ export function initials(name: string | null | undefined, email: string | null |
   if (letters.length > 0) return letters.join("").toUpperCase();
   return (email ?? "?").charAt(0).toUpperCase();
 }
+
+// "just now", "5 min ago", "3 h ago", "2 days ago": how long since the last sync
+export function formatAgo(date: Date, now: Date): string {
+  const minutes = Math.floor((now.getTime() - date.getTime()) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${String(minutes)} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${String(hours)} h ago`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "1 day ago" : `${String(days)} days ago`;
+}

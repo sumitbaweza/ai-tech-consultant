@@ -12,11 +12,11 @@ import {
   unique,
   varchar,
 } from "drizzle-orm/pg-core";
-import { FOLDERS } from "../lib/folders";
+import { STORED_FOLDERS } from "../lib/folders";
 
 export const inbox = pgSchema("inbox");
 
-export const folderEnum = inbox.enum("folder", FOLDERS);
+export const folderEnum = inbox.enum("folder", STORED_FOLDERS);
 
 /** A mailbox the app reads: the fixtures one, or a Gmail account someone signed in with. */
 export const mailboxes = inbox.table("mailboxes", {
@@ -27,6 +27,13 @@ export const mailboxes = inbox.table("mailboxes", {
   refreshToken: text("refresh_token"),
   accessToken: text("access_token"),
   accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+  // Gmail's position in the mailbox's change log after the last sync; the next sync asks
+  // only for what changed since. Null until the first full sync.
+  historyId: text("history_id"),
+  lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+  lastSyncError: text("last_sync_error"),
+  // Google refused the refresh token (revoked, or 7 days old in Testing mode): sign in again
+  needsSignIn: boolean("needs_sign_in").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

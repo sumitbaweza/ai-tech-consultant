@@ -1,6 +1,7 @@
 import { Mail, Settings } from "lucide-react";
 import Link from "next/link";
 import { AccountMenu } from "@/components/account-menu";
+import { SyncButton } from "@/components/sync-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { Env } from "@/env";
@@ -9,9 +10,12 @@ import type { Env } from "@/env";
 export function TopBar({
   user,
   mode,
+  canSync,
 }: {
   user: { name?: string | null; email?: string | null };
   mode: Env["INBOX_MODE"];
+  // Only a Gmail mailbox has anything to sync
+  canSync: boolean;
 }) {
   return (
     <header className="flex h-16 shrink-0 items-center gap-3 px-4">
@@ -21,6 +25,7 @@ export function TopBar({
       </Link>
       <div className="flex-1" />
       <Badge variant="secondary">{mode === "fixtures" ? "Fixtures mode" : "Gmail"}</Badge>
+      {canSync && <SyncButton />}
       <Button asChild variant="ghost" size="icon" aria-label="Settings">
         <Link href="/settings">
           <Settings />

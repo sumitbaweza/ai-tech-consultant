@@ -1,5 +1,6 @@
 import { signInOptions } from "@/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatAgo } from "@/lib/format";
 import { getViewer } from "@/lib/viewer";
 
 export default async function SettingsPage() {
@@ -11,6 +12,12 @@ export default async function SettingsPage() {
     ["Signed in as", user.email ?? "Unknown"],
     ["Google sign-in", options.google ? "Configured" : "Not configured (GOOGLE_CLIENT_ID is empty)"],
   ];
+  if (mailbox?.provider === "google") {
+    rows.push(
+      ["Last synced", mailbox.lastSyncedAt ? formatAgo(mailbox.lastSyncedAt, new Date()) : "Not yet"],
+      ["Sync status", mailbox.needsSignIn ? "Sign in with Google again" : (mailbox.lastSyncError ?? "OK")],
+    );
+  }
 
   return (
     <div className="overflow-y-auto p-6">

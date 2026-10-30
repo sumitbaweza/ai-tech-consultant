@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatListDate, initials } from "@/lib/format";
+import { formatAgo, formatListDate, initials } from "@/lib/format";
 
 describe("formatListDate", () => {
   const now = new Date("2026-10-30T15:00:00Z");
@@ -17,5 +17,18 @@ describe("initials", () => {
     expect(initials("Cher", null)).toBe("C");
     expect(initials("  ", "zed@example.com")).toBe("Z");
     expect(initials(null, null)).toBe("?");
+  });
+});
+
+describe("formatAgo", () => {
+  const now = new Date("2026-10-31T12:00:00Z");
+  const before = (ms: number) => new Date(now.getTime() - ms);
+
+  it("rounds down to the largest whole unit", () => {
+    expect(formatAgo(before(20_000), now)).toBe("just now");
+    expect(formatAgo(before(5 * 60_000 + 30_000), now)).toBe("5 min ago");
+    expect(formatAgo(before(3 * 3_600_000), now)).toBe("3 h ago");
+    expect(formatAgo(before(30 * 3_600_000), now)).toBe("1 day ago");
+    expect(formatAgo(before(72 * 3_600_000), now)).toBe("3 days ago");
   });
 });

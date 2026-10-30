@@ -2,9 +2,26 @@ import { and, count, desc, eq, sql } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import { emails, mailboxes } from "@/db/schema";
 import type { Env } from "@/env";
-import { FOLDERS, type Folder } from "@/lib/folders";
+import { FOLDERS, type Folder, isFolder } from "@/lib/folders";
 
-export type Mailbox = { id: number; address: string };
+// What the screens need to know about a mailbox: never its tokens
+const mailboxColumns = {
+  id: mailboxes.id,
+  address: mailboxes.address,
+  provider: mailboxes.provider,
+  lastSyncedAt: mailboxes.lastSyncedAt,
+  lastSyncError: mailboxes.lastSyncError,
+  needsSignIn: mailboxes.needsSignIn,
+};
+
+export type Mailbox = {
+  id: number;
+  address: string;
+  provider: "fixtures" | "google";
+  lastSyncedAt: Date | null;
+  lastSyncError: string | null;
+  needsSignIn: boolean;
+};
 
 /** The mailbox the signed-in person sees: the fixtures one in fixtures mode, otherwise the
  *  Gmail account they signed in with. */
@@ -18,7 +35,7 @@ export async function currentMailbox(
       ? eq(mailboxes.provider, "fixtures")
       : eq(mailboxes.address, signedInEmail ?? "");
   const [mailbox] = await db
-    .select({ id: mailboxes.id, address: mailboxes.address })
+    .select(mailboxColumns)
     .from(mailboxes)
     .where(where)
     .limit(1);
@@ -49,6 +66,9 @@ export async function saveGoogleMailbox(
         refreshToken: sql`coalesce(excluded.refresh_token, ${mailboxes.refreshToken})`,
         accessToken: sql`excluded.access_token`,
         accessTokenExpiresAt: sql`excluded.access_token_expires_at`,
+        // A fresh sign-in fixes a refused one
+        needsSignIn: false,
+        lastSyncError: null,
         updatedAt: sql`now()`,
       },
     });
@@ -62,7 +82,8 @@ export async function unreadCounts(db: Db, mailboxId: number): Promise<Record<Fo
     .where(and(eq(emails.mailboxId, mailboxId), eq(emails.isRead, false)))
     .groupBy(emails.folder);
   const counts = Object.fromEntries(FOLDERS.map((folder) => [folder, 0])) as Record<Folder, number>;
-  for (const row of rows) counts[row.folder] = row.unread;
+  // Archived mail has no place in the rail, so its count is left out
+  for (const row of rows) if (isFolder(row.folder)) counts[row.folder] = row.unread;
   return counts;
 }
 
