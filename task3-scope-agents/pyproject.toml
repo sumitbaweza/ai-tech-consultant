@@ -1,0 +1,50 @@
+[project]
+name = "scope-agents"
+version = "0.1.0"
+description = "Task 3, Meeting to Scope: a team of agents turns client meeting transcripts into a scope of work, an estimate and a proposal."
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.20.1",
+    "anthropic>=2.3.0",
+    "asyncpg>=0.32.0",
+    "fastapi>=0.162.0",
+    "httpx>=0.28.1",
+    "pydantic>=2.14.2",
+    "pydantic-settings>=2.16.2",
+    "pyyaml>=6.0.3",
+    "sqlalchemy[asyncio]>=2.1.6",
+    "streamlit>=1.66.1",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, import order, bugbear, modern syntax, simplifications, async pitfalls, ruff's own
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "ASYNC", "RUF"]
+
+[tool.pyright]
+include = ["app", "migrations", "tests", "ui"]
+typeCheckingMode = "strict"
+pythonVersion = "3.12"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = ["db: needs the Postgres from docker compose; skipped when it is not running"]
+
+[dependency-groups]
+dev = [
+    "pyright[nodejs]>=1.1.414",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.4.1",
+    "respx>=0.23.1",
+    "ruff>=0.17.3",
+    "types-pyyaml>=6.0.12.20261030",
+]
