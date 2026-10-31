@@ -1,6 +1,7 @@
 # Start the system with `make up`. Windows has no `make` built in:
 # paste a target's command lines into PowerShell instead.
-.PHONY: up down logs ps psql test lint format eval eval-check eval-experts \n	inbox-install inbox-dev inbox-test inbox-lint
+.PHONY: up down logs ps psql test lint format eval eval-check eval-experts
+.PHONY: inbox-install inbox-dev inbox-test inbox-lint
 
 # Build and start every service in the background
 up:
