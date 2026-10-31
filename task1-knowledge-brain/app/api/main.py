@@ -10,7 +10,16 @@ from fastapi import APIRouter, Depends, FastAPI
 from pydantic import BaseModel
 
 from app.api.deps import require_api_key
-from app.api.routes import articles, ask, expert_tasks, ingestions, search, sitemaps, stats
+from app.api.routes import (
+    articles,
+    ask,
+    capabilities,
+    expert_tasks,
+    ingestions,
+    search,
+    sitemaps,
+    stats,
+)
 
 app = FastAPI(
     title="Knowledge Brain API",
@@ -25,6 +34,7 @@ v1.include_router(ingestions.router)
 v1.include_router(stats.router)
 v1.include_router(search.router)
 v1.include_router(ask.router)
+v1.include_router(capabilities.router)
 v1.include_router(articles.router)
 v1.include_router(expert_tasks.router)
 app.include_router(v1)

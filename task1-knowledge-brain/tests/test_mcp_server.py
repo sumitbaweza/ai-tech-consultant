@@ -42,12 +42,14 @@ async def test_each_tool_is_one_call_to_the_brain_api() -> None:
         asked = await client.call_tool("kb_ask", {"question": "How do I add a logo?"})
         await client.call_tool("kb_search", {"query": "logo", "limit": 3})
         await client.call_tool("kb_get_article", {"article_id": 217})
+        await client.call_tool("check_capability", {"requirement": "Approve new members"})
 
-    assert tools == {"kb_ask", "kb_search", "kb_get_article"}
+    assert tools == {"kb_ask", "kb_search", "kb_get_article", "check_capability"}
     assert fake.requests == [
         ("POST", "/v1/ask", {"question": "How do I add a logo?", "history": []}, "test-key-1"),
         ("POST", "/v1/search", {"query": "logo", "limit": 3}, "test-key-1"),
         ("GET", "/v1/articles/217", None, "test-key-1"),
+        ("POST", "/v1/capabilities/check", {"requirement": "Approve new members"}, "test-key-1"),
     ]
     assert not asked.is_error
     assert asked.structured_content == {"path": "/v1/ask", "answered": True}
