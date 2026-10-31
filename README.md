@@ -11,7 +11,8 @@ You need Docker Desktop (on Windows, with WSL2).
 1. `cp .env.example .env`, then add your `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY`.
 2. `make up`
 3. Open the Brain's screens at http://localhost:8501 and sign in. The example user in `.env.example` is `admin` with the password `brain-demo`; make your own with `uv run --directory task1-knowledge-brain python -m ui.passwords <name>`.
-4. The Brain's API docs are at http://localhost:8000/docs. Use a key from `BRAIN_API_KEYS` in `.env`.
+   On a first start, `brain-seed` loads `task1-knowledge-brain/seed/brain-seed.jsonl.gz`, a finished crawl with its screenshot descriptions and embeddings (about 1 minute), so the Brain answers at once. To crawl the help center again, use "Check now" on the Sources screen, or `POST /v1/sitemaps/{id}/check`; only changed pages are embedded again. To refresh the snapshot from your own database: `uv run --directory task1-knowledge-brain python -m app.seed export`.
+4. The Brain's API docs are at http://localhost:8000/docs. Use a key from `BRAIN_API_KEYS` in `.env`. `POST /v1/ask` answers with citations: Haiku takes easy questions and Sonnet the rest, and `route` in the reply says which model answered and why. `POST /v1/capabilities/check` says whether a built-in setting already does what a client asks for.
 5. Open the Inbox Agent at http://localhost:3000. Without Google settings it runs in fixtures mode, on the emails in `task2-inbox-agent/fixtures/emails.json`: sign in with `INBOX_DEMO_PASSWORD` from `.env` (`inbox-demo` in `.env.example`).
 6. Open Meeting to Scope at http://localhost:8502: pick a sample transcript from `task3-scope-agents/transcripts/` (stand-ins until the recorded meetings), watch the agents, answer their questions, then edit and approve the scope. Its API docs are at http://localhost:8002/docs (key: `SCOPE_API_KEYS` in `.env`). It asks the Brain with `BRAIN_API_KEY`, so set that in `.env` too.
 
@@ -36,11 +37,11 @@ Windows has no `make` built in, so here is each target without it:
 | `make scope-test` | `uv run --directory task3-scope-agents pytest` |
 | `make scope-lint` | `uv run --directory task3-scope-agents ruff check .`, then `ruff format --check .`, then `pyright` the same way |
 
-Tests, lint and evals run on your machine and need [uv](https://docs.astral.sh/uv/). `make eval-check` checks the eval cases against the crawled pages for free; `make eval` runs them through the real answer path, needs both API keys, and saves the results in `task1-knowledge-brain/evals/results/`. The inbox's checks need Node 22 and pnpm (`npm install -g corepack@latest`, then `corepack enable pnpm`).
+Tests, lint and evals run on your machine and need [uv](https://docs.astral.sh/uv/). `make eval-check` checks the eval cases against the crawled pages for free; `make eval` runs them through the real answer path, needs both API keys, and saves the results in `task1-knowledge-brain/evals/results/`. Add `--model sonnet` or `--model haiku` to the `python -m evals.run` command to compare the router (the default, `auto`) with each model alone. The inbox's checks need Node 22 and pnpm (`npm install -g corepack@latest`, then `corepack enable pnpm`).
 
 ## Use the Brain from Claude (MCP)
 
-`make up` also starts `brain-mcp`, which offers the Brain as three MCP tools: `kb_ask` (an answer with citations), `kb_search` (matching chunks, no LLM) and `kb_get_article` (one article in full). Each tool calls the Brain's API with the first key in `BRAIN_API_KEYS`, so the API's rules apply.
+`make up` also starts `brain-mcp`, which offers the Brain as four MCP tools: `kb_ask` (an answer with citations), `kb_search` (matching chunks, no LLM), `kb_get_article` (one article in full) and `check_capability` (whether a built-in setting covers a client requirement). Each tool calls the Brain's API with the first key in `BRAIN_API_KEYS`, so the API's rules apply.
 
 - **Claude Code**, over HTTP:
 

@@ -97,13 +97,22 @@ services:
       postgres:
         condition: service_healthy
 
+  # On a first start (no pages yet), loads seed/brain-seed.jsonl.gz, a finished crawl with its
+  # embeddings, so the Brain answers within minutes. Otherwise it does nothing, then exits.
+  brain-seed:
+    <<: *brain
+    command: ["python", "-m", "app.seed", "load"]
+    depends_on:
+      brain-migrate:
+        condition: service_completed_successfully
+
   # The Brain's API. Docs: http://localhost:8000/docs
   brain-api:
     <<: *brain
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
-      brain-migrate:
+      brain-seed:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -116,7 +125,7 @@ services:
     <<: *brain
     command: ["python", "-m", "app.jobs.worker"]
     depends_on:
-      brain-migrate:
+      brain-seed:
         condition: service_completed_successfully
     restart: unless-stopped
 
