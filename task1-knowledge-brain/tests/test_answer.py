@@ -216,7 +216,8 @@ async def test_a_model_outage_is_reported_not_guessed(db_session: AsyncSession) 
     result = await ask(db_session, make_claude(api), FakeEmbedder(), "How do I rename words?", [])
 
     assert (result.outcome, result.answer) == (Outcome.MODEL_FAILED, FAILED)
-    assert api.prompts == ["answer", "answer"]  # Sonnet, then its fallback model
+    # The router tries Haiku (an easy question, a close match), then Sonnet and its fallback
+    assert api.prompts == ["answer", "answer", "answer"]
 
 
 @pytest.mark.db

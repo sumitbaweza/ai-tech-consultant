@@ -6,13 +6,17 @@ ask() runs these steps:
 2. Hybrid search finds the MAX_SOURCES best chunks.
 3. If none of them is close in meaning (cosine similarity under MIN_SIMILARITY), the help center
    doesn't cover the question: the answer is "I don't know", and Sonnet is never called.
-4. Sonnet answers from those chunks only (prompts/answer), citing them by id.
+4. The router (app/rag/router.py) picks the model. An easy question goes to Haiku
+   (prompts/answer_fast); any other to Sonnet (prompts/answer). Either answers from those chunks
+   only, citing them by id. A Haiku answer that is unanswered, uncited or unsure is thrown away,
+   and Sonnet answers instead.
 5. Citation ids that don't match a source are dropped. An answer with no valid citation left
    can't be checked, so it becomes "I don't know" too.
 
-Every result has an outcome saying why it was or wasn't answered, and lists the sources search
-found. ask() only reads: for an unanswered question, POST /v1/ask opens an expert task
-(app/experts.py), so evals and other callers can ask without filling the queue.
+Every result has an outcome saying why it was or wasn't answered, the route (which model
+answered and why), and the sources search found. ask() only reads: for an unanswered question,
+POST /v1/ask opens an expert task (app/experts.py), so evals and other callers can ask without
+filling the queue.
 """
 
 import logging
@@ -27,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.llm import Claude, LLMError
 from app.models import PageKind
 from app.rag.embed import Embedder, EmbeddingError
+from app.rag.router import Route, RouteMode, Tier, choose_route, escalate
 from app.rag.search import SearchHit, search
 
 logger = logging.getLogger(__name__)
@@ -36,6 +41,8 @@ MAX_SOURCES = 8
 # point, to be tuned on the eval set.
 MIN_SIMILARITY = 0.30
 SNIPPET_CHARS = 300
+# A Haiku answer less sure than this goes to Sonnet instead. A starting point, like the others.
+ESCALATE_BELOW = 0.7
 
 DONT_KNOW = (
     "I couldn't find this in the help center, so I won't guess. A support expert can answer it."
@@ -108,6 +115,8 @@ class AskResult(BaseModel):
     confidence: float
     outcome: Outcome
     sources: list[Source]  # everything search found, best first
+    # Which model answered and why; None when no model was called (nothing close was found)
+    route: Route | None = None
     # The expert task the question went to, when the help center didn't answer it
     expert_task_id: int | None = None
 
@@ -120,9 +129,10 @@ async def ask(
     history: list[ChatTurn],
     *,
     run_tag: str | None = None,
+    mode: RouteMode = "auto",
 ) -> AskResult:
     """`run_tag` labels this question's Claude calls in llm_calls, so an eval can add up what
-    each question cost."""
+    each question cost. `mode` "sonnet" or "haiku" skips the router, for comparing models."""
     standalone = await _standalone(claude, question, history, run_tag) if history else question
 
     query_vector: list[float] | None = None
@@ -132,40 +142,80 @@ async def ask(
         except EmbeddingError:
             logger.warning("Embedding the question failed; searching by exact words only")
     hits = await search(session, standalone, query_vector, limit=MAX_SOURCES)
-    found = [_source(hit) for hit in hits]
+    found = [make_source(hit) for hit in hits]
 
-    if not hits or (query_vector is not None and _best_similarity(hits) < MIN_SIMILARITY):
+    if not hits or (query_vector is not None and best_similarity(hits) < MIN_SIMILARITY):
         return _unanswered(question, standalone, Outcome.LOW_RETRIEVAL, DONT_KNOW, found)
 
     sources = {f"S{number}": hit for number, hit in enumerate(hits, start=1)}
-    try:
-        draft = await claude.call(
-            "answer", 1, answer_content(standalone, sources), AnswerDraft, run_tag=run_tag
-        )
-    except (LLMError, anthropic.APIError) as error:
-        logger.warning("Answering failed: %s", error)
-        return _unanswered(question, standalone, Outcome.MODEL_FAILED, FAILED, found)
+    content = answer_content(standalone, sources)
+    route = choose_route(standalone, hits, mode)
+    draft = await _draft(claude, route.prompt, content, run_tag)
+    if route.tier == Tier.HAIKU and route.mode == "auto":
+        weakness = _weakness(draft, sources)
+        if weakness is not None:
+            route = escalate(route, weakness)
+            draft = await _draft(claude, route.prompt, content, run_tag)
+    logger.info("Answered by %s: %s", route.tier, route.reason)
 
-    # dict.fromkeys keeps the first mention of each id, in order; ids we didn't give are dropped
-    cited = [source_id for source_id in dict.fromkeys(draft.citations) if source_id in sources]
+    if draft is None:
+        return _unanswered(question, standalone, Outcome.MODEL_FAILED, FAILED, found, route)
+    cited = valid_citations(draft.citations, sources)
     if not draft.answered:
-        return _unanswered(question, standalone, Outcome.NOT_IN_SOURCES, draft.answer, found)
+        return _unanswered(question, standalone, Outcome.NOT_IN_SOURCES, draft.answer, found, route)
     if not cited:
-        return _unanswered(question, standalone, Outcome.NO_VALID_CITATION, DONT_KNOW, found)
+        return _unanswered(question, standalone, Outcome.NO_VALID_CITATION, DONT_KNOW, found, route)
     return AskResult(
         question=question,
         standalone_question=standalone,
         answered=True,
         answer=draft.answer,
-        citations=[_citation(source_id, sources[source_id]) for source_id in cited],
+        citations=[make_citation(source_id, sources[source_id]) for source_id in cited],
         confidence=draft.confidence,
         outcome=Outcome.ANSWERED,
         sources=found,
+        route=route,
     )
 
 
+async def _draft(
+    claude: Claude, prompt: str, content: list[BetaContentBlockParam], run_tag: str | None
+) -> AnswerDraft | None:
+    """One answer from the given prompt, or None when the model gave no usable answer."""
+    try:
+        return await claude.call(prompt, 1, content, AnswerDraft, run_tag=run_tag)
+    except (LLMError, anthropic.APIError) as error:
+        logger.warning("Answering with %s failed: %s", prompt, error)
+        return None
+
+
+def _weakness(draft: AnswerDraft | None, sources: dict[str, SearchHit]) -> str | None:
+    """Why Haiku's answer isn't good enough to send, or None when it is."""
+    if draft is None:
+        return "haiku gave no usable answer"
+    if not draft.answered:
+        return "haiku found no answer in the sources"
+    if not valid_citations(draft.citations, sources):
+        return "haiku cited none of the sources"
+    if draft.confidence < ESCALATE_BELOW:
+        return f"haiku's confidence was {draft.confidence:.2f}"
+    return None
+
+
+def valid_citations(citations: list[str], sources: dict[str, SearchHit]) -> list[str]:
+    """The cited ids that are real sources. dict.fromkeys keeps the first mention of each id,
+    in order; ids we didn't give are dropped."""
+    return [source_id for source_id in dict.fromkeys(citations) if source_id in sources]
+
+
 def answer_content(question: str, sources: dict[str, SearchHit]) -> list[BetaContentBlockParam]:
-    """The sources, each in a tag with its id, then the question. The tags mark them as data."""
+    """The sources, then the question. The tags mark them as data."""
+    text = f"{sources_block(sources)}\n\n<question>{question}</question>"
+    return [{"type": "text", "text": text}]
+
+
+def sources_block(sources: dict[str, SearchHit]) -> str:
+    """Each source in a tag with its id, kind and title, inside one <sources> tag."""
     blocks: list[str] = []
     for source_id, hit in sources.items():
         kind = "screenshot" if hit.image_url else "text"
@@ -173,8 +223,7 @@ def answer_content(question: str, sources: dict[str, SearchHit]) -> list[BetaCon
             f'<source id="{source_id}" kind="{kind}" title="{hit.title or ""}">\n'
             f"{hit.content}\n</source>"
         )
-    text = "<sources>\n" + "\n".join(blocks) + f"\n</sources>\n\n<question>{question}</question>"
-    return [{"type": "text", "text": text}]
+    return "<sources>\n" + "\n".join(blocks) + "\n</sources>"
 
 
 def rewrite_content(history: list[ChatTurn], question: str) -> str:
@@ -200,11 +249,11 @@ async def _standalone(
     return rewritten.question.strip() or question
 
 
-def _best_similarity(hits: list[SearchHit]) -> float:
+def best_similarity(hits: list[SearchHit]) -> float:
     return max((hit.similarity for hit in hits if hit.similarity is not None), default=0.0)
 
 
-def _citation(source_id: str, hit: SearchHit) -> Citation:
+def make_citation(source_id: str, hit: SearchHit) -> Citation:
     # Each chunk starts with its breadcrumb line; the snippet shows the text after it
     text = hit.content.split("\n\n", 1)[-1]
     return Citation(
@@ -219,7 +268,7 @@ def _citation(source_id: str, hit: SearchHit) -> Citation:
     )
 
 
-def _source(hit: SearchHit) -> Source:
+def make_source(hit: SearchHit) -> Source:
     return Source(
         origin=_origin(hit),
         chunk_id=hit.chunk_id,
@@ -236,7 +285,12 @@ def _origin(hit: SearchHit) -> Origin:
 
 
 def _unanswered(
-    question: str, standalone: str, outcome: Outcome, answer: str, found: list[Source]
+    question: str,
+    standalone: str,
+    outcome: Outcome,
+    answer: str,
+    found: list[Source],
+    route: Route | None = None,
 ) -> AskResult:
     return AskResult(
         question=question,
@@ -247,4 +301,5 @@ def _unanswered(
         confidence=0.0,
         outcome=outcome,
         sources=found,
+        route=route,
     )

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from app.api.deps import ClaudeDep, SessionDep, VoyageDep
 from app.experts import EXPERT_REASONS, open_task
 from app.rag.answer import AskResult, ChatTurn, ask
+from app.rag.router import RouteMode
 
 router = APIRouter(tags=["ask"])
 
@@ -17,6 +18,11 @@ class AskRequest(BaseModel):
         default_factory=list[ChatTurn],
         max_length=20,
         description="Earlier turns of the chat, oldest first, so a follow-up can be understood",
+    )
+    model: RouteMode = Field(
+        default="auto",
+        description="auto: Haiku answers easy questions and Sonnet the rest. sonnet or haiku: "
+        "that model answers every question, for comparing models",
     )
 
 
@@ -29,12 +35,12 @@ async def ask_question(
     closest articles don't answer it), no_valid_citation, or model_failed. Every citation
     points at an article (and a screenshot, if that's where the answer is), or, with `origin`
     "expert", at an expert's answer from the expert queue. `sources` lists everything search
-    found.
+    found. `route` says which model answered and why.
 
     A question the help center doesn't cover goes to a human expert: `expert_task_id` is its
     task in GET /v1/expert-tasks, and once the expert answers, the answer is used from then on.
     A model failure doesn't go to an expert, since asking again later can work."""
-    result = await ask(session, claude, voyage, body.question, body.history)
+    result = await ask(session, claude, voyage, body.question, body.history, mode=body.model)
     reason = EXPERT_REASONS.get(result.outcome)
     if reason is not None:
         # The task keeps the question as it stands on its own. For a follow-up, the expert also

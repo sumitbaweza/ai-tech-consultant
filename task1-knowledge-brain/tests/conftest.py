@@ -20,6 +20,9 @@ os.environ["DB_NAME"] = "consultant_test"
 os.environ["BRAIN_API_KEYS"] = "test-key-1,test-key-2"
 # Tests talk to fake sites, so there's no server to be polite to
 os.environ["CRAWLER_REQUESTS_PER_SECOND"] = "1000"
+# Never the real keys from .env: a test that forgets a fake fails instead of spending money
+os.environ["ANTHROPIC_API_KEY"] = ""
+os.environ["VOYAGE_API_KEY"] = ""
 
 # Imported only now, after the environment above is set
 from app.config import get_settings

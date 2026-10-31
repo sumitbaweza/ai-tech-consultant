@@ -4,6 +4,10 @@
     uv run python -m evals.run --check    # check the case file against the crawl: no keys, no cost
     uv run python -m evals.run --only how-to-rename-a-word-everywhere
     uv run python -m evals.run --expert-replay   # ask each expert answer's question again
+    uv run python -m evals.run --model sonnet    # every answer by Sonnet; also haiku or auto
+
+--model compares the router with each model alone: run the cases once per mode, then compare
+pass rate, cost and latency. The default, auto, is what /v1/ask does.
 
 A case passes when the answer does what its kind requires:
 - how_to and follow_up: answered, citing an expected article
@@ -41,6 +45,7 @@ from app.llm import Claude, get_claude
 from app.models import Chunk, Image, LLMCall, Page, PageKind, PageStatus
 from app.rag.answer import AskResult, Outcome, ask
 from app.rag.embed import Embedder, get_voyage
+from app.rag.router import RouteMode, Tier
 from app.rag.search import search
 from evals.cases import CASES_FILE, CaseFile, EvalCase, Kind, load_cases
 
@@ -70,6 +75,8 @@ class CaseResult(BaseModel):
     # Claude only: the question's embedding costs about $0.0000004 and isn't tagged
     cost_usd: float
     claude_calls: int  # our wrapper's attempts, fallbacks included
+    answered_by: Tier | None = None  # None when no model was called
+    escalated: bool = False  # Haiku tried first, and Sonnet answered
 
 
 class Tally(BaseModel):
@@ -94,6 +101,7 @@ class Report(BaseModel):
     run_id: str
     started_at: datetime
     cases_file: str
+    mode: RouteMode = "auto"
     models: dict[str, int]  # e.g. "answer v1 on claude-sonnet-5-5": number of calls
     summary: Summary
     results: list[CaseResult]
@@ -163,6 +171,7 @@ async def run_case(
     embedder: Embedder,
     case: EvalCase,
     run_id: str,
+    mode: RouteMode = "auto",
 ) -> CaseResult:
     run_tag = f"eval:{run_id}:{case.id}"
     async with session_factory() as session:
@@ -175,7 +184,9 @@ async def run_case(
                 .values(status=PageStatus.ARCHIVED)
             )
         started = time.perf_counter()
-        result = await ask(session, claude, embedder, case.question, case.history, run_tag=run_tag)
+        result = await ask(
+            session, claude, embedder, case.question, case.history, run_tag=run_tag, mode=mode
+        )
         latency_ms = round((time.perf_counter() - started) * 1000)
         top = await top_articles(session, embedder, result.standalone_question)
         await session.rollback()
@@ -198,6 +209,8 @@ async def run_case(
         latency_ms=latency_ms,
         cost_usd=cost,
         claude_calls=calls,
+        answered_by=result.route.tier if result.route else None,
+        escalated=result.route.escalated if result.route else False,
     )
 
 
@@ -291,9 +304,10 @@ async def models_used(session: AsyncSession, run_id: str) -> dict[str, int]:
 
 def case_line(result: CaseResult) -> str:
     top = "-" if result.in_top_k is None else "yes" if result.in_top_k else "no"
+    model = (result.answered_by or "-") + ("+" if result.escalated else "")
     line = (
         f"{'PASS' if result.passed else 'FAIL'}  {result.outcome:<17}  top {TOP_K}: {top:<3}  "
-        f"{result.latency_ms / 1000:5.1f} s  ${result.cost_usd:.4f}  {result.id}"
+        f"{model:<7}  {result.latency_ms / 1000:5.1f} s  ${result.cost_usd:.4f}  {result.id}"
     )
     return "\n".join([line, *(f"      - {failure}" for failure in result.failures)])
 
@@ -307,7 +321,15 @@ def print_summary(report: Report) -> None:
     print(f"Latency of ask(): p50 {p50:.1f} s, p95 {p95:.1f} s")
     print(f"Claude cost: ${summary.cost_usd:.4f} in all, ${summary.cost_per_case_usd:.4f} a case")
     models = ", ".join(f"{name} x{count}" for name, count in report.models.items())
-    print(f"Models: {models or 'none'}")
+    print(f"Models ({report.mode}): {models or 'none'}")
+    if report.mode == "auto":
+        routed = [result for result in report.results if result.answered_by is not None]
+        haiku = sum(result.answered_by == Tier.HAIKU for result in routed)
+        escalated = sum(result.escalated for result in routed)
+        print(
+            f"Router: Haiku answered {haiku}/{len(routed)}, "
+            f"{escalated} escalated from Haiku to Sonnet (marked + above)"
+        )
 
 
 # --- The expert replay ----------------------------------------------------------------------
@@ -442,13 +464,19 @@ async def check(case_file: CaseFile, cases_path: Path) -> CheckReport:
     return report
 
 
-async def run(cases: list[EvalCase], cases_path: Path, claude: Claude, embedder: Embedder) -> None:
+async def run(
+    cases: list[EvalCase],
+    cases_path: Path,
+    claude: Claude,
+    embedder: Embedder,
+    mode: RouteMode = "auto",
+) -> None:
     started_at = datetime.now(UTC)
     run_id = started_at.strftime("%Y%m%d-%H%M%S")
-    print(f"\nEval run {run_id}: {len(cases)} cases\n")
+    print(f"\nEval run {run_id}: {len(cases)} cases, model {mode}\n")
     results: list[CaseResult] = []
     for case in cases:  # one at a time, so the latencies aren't skewed by each other
-        result = await run_case(SessionFactory, claude, embedder, case, run_id)
+        result = await run_case(SessionFactory, claude, embedder, case, run_id, mode)
         print(case_line(result))
         results.append(result)
 
@@ -458,6 +486,7 @@ async def run(cases: list[EvalCase], cases_path: Path, claude: Claude, embedder:
         run_id=run_id,
         started_at=started_at,
         cases_file=cases_path.name,
+        mode=mode,
         models=models,
         summary=summarize(results),
         results=results,
@@ -478,8 +507,15 @@ async def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--expert-replay", action="store_true", help="ask each expert answer's question again"
     )
+    parser.add_argument(
+        "--model",
+        choices=["auto", "sonnet", "haiku"],
+        default="auto",
+        help="auto: the router picks, as /v1/ask does; sonnet or haiku: that model answers all",
+    )
     args = parser.parse_args(argv)
     cases_path: Path = args.cases
+    mode: RouteMode = args.model
     only: list[str] = args.only
 
     if args.expert_replay:
@@ -509,7 +545,7 @@ async def main(argv: list[str] | None = None) -> int:
         if clients is None or report.not_indexed:
             return 1
         cases = [case for case in case_file.cases if not only or case.id in only]
-        await run(cases, cases_path, *clients)
+        await run(cases, cases_path, *clients, mode)
         return 0
     finally:
         await engine.dispose()  # close the pooled connections before the event loop closes
