@@ -46,6 +46,24 @@ x-inbox: &inbox
     BRAIN_API_URL: http://brain-api:8000
     BRAIN_API_KEY: ${BRAIN_API_KEY:-}
 
+# Shared by every Meeting to Scope service: one image, the same settings
+x-scope: &scope
+  build: ./task3-scope-agents
+  image: ai-tech-consultant/scope:dev
+  environment:
+    DB_HOST: postgres
+    SCOPE_DB_PASSWORD: ${SCOPE_DB_PASSWORD:?Set SCOPE_DB_PASSWORD in .env}
+    # Keys that may call the scope API; the screens use the first one
+    SCOPE_API_KEYS: ${SCOPE_API_KEYS:-dev-scope-key}
+    # Where the screens find the scope API, inside the Compose network
+    SCOPE_API_URL: http://scope-api:8002
+    # May be empty: the API still starts, and refuses to start a run until it's set
+    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    # The Brain's API inside the Compose network, and one of its BRAIN_API_KEYS.
+    # No depends_on: when the Brain is down, requirements are marked "unverified".
+    BRAIN_API_URL: http://brain-api:8000
+    BRAIN_API_KEY: ${BRAIN_API_KEY:-}
+
 services:
   postgres:
     # Postgres 16 with the pgvector extension, pinned so a fresh clone gets the same database.
@@ -165,6 +183,50 @@ services:
     depends_on:
       inbox-migrate:
         condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Applies the scope team's database migrations once, then exits
+  scope-migrate:
+    <<: *scope
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # The scope team's API: runs the agents in the background. Docs: http://localhost:8002/docs
+  scope-api:
+    <<: *scope
+    ports:
+      - "127.0.0.1:8002:8002"
+    depends_on:
+      scope-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # The scope team's screens: http://localhost:8502
+  scope-ui:
+    <<: *scope
+    command:
+      - python
+      - -m
+      - streamlit
+      - run
+      - ui/main.py
+      - --server.address=0.0.0.0
+      - --server.port=8502
+      - --server.headless=true
+      - --browser.gatherUsageStats=false
+      - --client.toolbarMode=viewer
+    ports:
+      - "127.0.0.1:8502:8502"
+    depends_on:
+      scope-api:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

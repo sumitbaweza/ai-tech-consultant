@@ -67,3 +67,21 @@ inbox-test:
 inbox-lint:
 	pnpm --dir task2-inbox-agent typecheck
 	pnpm --dir task2-inbox-agent lint
+
+# --- Task 3: Meeting to Scope ---
+.PHONY: scope-test scope-lint scope-format
+
+# Run the scope team's tests. Database tests are skipped unless Postgres is up.
+scope-test:
+	uv run --directory task3-scope-agents pytest
+
+# Lint, check formatting and type-check the scope team in strict mode
+scope-lint:
+	uv run --directory task3-scope-agents ruff check .
+	uv run --directory task3-scope-agents ruff format --check .
+	uv run --directory task3-scope-agents pyright
+
+# Fix what ruff can fix, and format the scope team's code
+scope-format:
+	uv run --directory task3-scope-agents ruff check --fix .
+	uv run --directory task3-scope-agents ruff format .
