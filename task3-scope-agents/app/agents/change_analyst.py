@@ -12,17 +12,23 @@ For changed and new items it estimates the extra hours, and says whether the ext
 inside the signed scope (a clarification) or outside it (a priced change order). Code then
 builds v2 from v1: removed work comes out, extra work goes in as new tasks, and every v1 task
 and quote stays traceable. v1 itself is never modified.
+
+The analyst also reads the follow-up transcript itself, because the extractor lists work the
+client asks for, and "please take the blog out" asks for none: without the transcript, a
+dropped item never reaches the analyst (prompt v1 missed exactly that). An item that isn't in
+the follow-up list must quote the client, and code checks the quote against the transcript,
+so nothing is removed from a signed scope on the model's word alone.
 """
 
 import json
 
 from pydantic import BaseModel, Field
 
-from app.handoffs import ChangeItem, ChangeLabel, Hours, Requirement, Role, Scope, Task
+from app.handoffs import ChangeItem, ChangeLabel, Hours, Quote, Requirement, Role, Scope, Task, Turn
 from app.llm import Claude
-from app.text import as_data
+from app.text import as_data, contains_quote
 
-PROMPT, VERSION = "analyze_changes", 1
+PROMPT, VERSION = "analyze_changes", 2
 
 
 class ProposedChange(BaseModel):
@@ -42,13 +48,18 @@ class ProposedChange(BaseModel):
     extra_high: float
     role: Role
     reason: str = Field(description="Why this label, citing the meeting")
+    quote: str | None = Field(
+        description="When followup_id is null: the client's exact words from the transcript"
+    )
 
 
 class ChangeAnalysis(BaseModel):
     changes: list[ProposedChange]
 
 
-def _content(v1: Scope, meeting: list[Requirement], human_note: str | None) -> str:
+def _content(
+    v1: Scope, meeting: list[Requirement], turns: list[Turn], human_note: str | None
+) -> str:
     agreed = {
         "requirements": [
             r.model_dump(include={"id", "title", "detail"}) for r in v1.active_requirements()
@@ -66,6 +77,8 @@ def _content(v1: Scope, meeting: list[Requirement], human_note: str | None) -> s
         + as_data("approved_scope", json.dumps(agreed, indent=1))
         + "\n\nWhat the client asked for in the follow-up meeting:\n\n"
         + as_data("followup_requirements", json.dumps(heard, indent=1))
+        + "\n\nThe follow-up meeting itself:\n\n"
+        + as_data("transcript", "\n".join(turn.line() for turn in turns))
     )
     if human_note:
         content += "\n\nA human reviewer sent your last analysis back with this note:\n\n"
@@ -77,22 +90,32 @@ async def analyze(
     claude: Claude,
     v1: Scope,
     meeting: list[Requirement],
+    turns: list[Turn],
     *,
     human_note: str | None = None,
     run_tag: str | None = None,
 ) -> list[ChangeItem]:
     """One checked ChangeItem per follow-up requirement, plus any removals."""
-    if not meeting:
-        return []
-    content = _content(v1, meeting, human_note)
+    content = _content(v1, meeting, turns, human_note)
     reply = await claude.call(PROMPT, VERSION, content, ChangeAnalysis, run_tag=run_tag)
-    return check_changes(reply.changes, v1, meeting)
+    return check_changes(reply.changes, v1, meeting, turns)
+
+
+def _find_quote(turns: list[Turn], quote: str | None) -> Quote | None:
+    """Who said `quote` in the follow-up meeting, and when; None if nobody did."""
+    if quote is None:
+        return None
+    for turn in turns:
+        if contains_quote(turn.text, quote):
+            return Quote(text=quote, speaker=turn.speaker, time=turn.time)
+    return None
 
 
 def check_changes(
-    proposed: list[ProposedChange], v1: Scope, meeting: list[Requirement]
+    proposed: list[ProposedChange], v1: Scope, meeting: list[Requirement], turns: list[Turn]
 ) -> list[ChangeItem]:
-    """Keep only changes that point at real requirements, and never lose a follow-up item."""
+    """Keep only changes that point at real requirements and real words, and never lose a
+    follow-up item."""
     agreed = {r.id for r in v1.active_requirements()}
     heard = {r.id: r for r in meeting}
     seen: set[str] = set()
@@ -107,6 +130,10 @@ def check_changes(
                 continue  # points at nothing real
             label = "new"  # it claims to change something v1 doesn't have
         if label == "new" and m_id is None:
+            continue
+        # Not in the follow-up list: it stands only on a quote the client really said
+        quote = heard[m_id].quotes[0] if m_id else _find_quote(turns, change.quote)
+        if quote is None:
             continue
         if m_id is not None:
             if m_id in seen:
@@ -126,7 +153,7 @@ def check_changes(
                 followup_id=m_id,
                 before=change.before,
                 after=change.after,
-                quote=heard[m_id].quotes[0] if m_id else None,
+                quote=quote,
                 in_signed_scope=change.in_signed_scope and label != "new",
                 extra_hours=extra,
                 role=change.role,

@@ -4,7 +4,14 @@ import pytest
 
 from app.agents import human_approval, proposal_writer
 from app.agents.change_analyst import ProposedChange, build_v2, check_changes
+from app.agents.splitter import parse_turns
 from app.handoffs import FitResult, Hours, ProposalDraft, Quote, Requirement, Scope, Task
+
+# The follow-up meeting the change analyst reads alongside the requirement list
+FOLLOWUP = parse_turns(
+    "[00:01:03] Priya: We're dropping the blog, please take it out of the project.\n"
+    "[00:01:20] Sumit: Okay, blog removed."
+)
 
 RATES = {"developer": 50.0, "designer": 45.0, "consultant": 60.0, "qa": 35.0}
 
@@ -54,7 +61,9 @@ def v1_scope() -> Scope:
     )
 
 
-def change(label: str, followup: str | None, v1: str | None, **hours: float) -> ProposedChange:
+def change(
+    label: str, followup: str | None, v1: str | None, quote: str | None = None, **hours: float
+) -> ProposedChange:
     return ProposedChange(
         label=label,  # type: ignore[arg-type]
         followup_id=followup,
@@ -68,6 +77,7 @@ def change(label: str, followup: str | None, v1: str | None, **hours: float) -> 
         extra_high=hours.get("high", 0),
         role="developer",
         reason="The client said so.",
+        quote=quote,
     )
 
 
@@ -95,10 +105,10 @@ def test_check_changes_drops_made_up_ids_and_keeps_skipped_items() -> None:
     proposed = [
         change("changed", "M1", "R1", low=1, likely=2, high=4),
         change("changed", "M9", "R9"),  # points at nothing real: dropped
-        change("removed", None, "R2"),
+        change("removed", None, "R2", quote="please take it out of the project"),
     ]
 
-    changes = check_changes(proposed, v1_scope(), meeting)
+    changes = check_changes(proposed, v1_scope(), meeting, FOLLOWUP)
 
     assert [(c.label, c.followup_id, c.v1_requirement_id) for c in changes] == [
         ("changed", "M1", "R1"),
@@ -108,11 +118,28 @@ def test_check_changes_drops_made_up_ids_and_keeps_skipped_items() -> None:
     assert changes[2].extra_hours is None
 
 
+def test_a_removal_heard_only_in_the_transcript_keeps_who_said_it_and_when() -> None:
+    [removal] = check_changes(
+        [change("removed", None, "R2", quote="we're dropping the blog")], v1_scope(), [], FOLLOWUP
+    )
+
+    assert (removal.label, removal.v1_requirement_id) == ("removed", "R2")
+    assert removal.quote == Quote(text="we're dropping the blog", speaker="Priya", time="00:01:03")
+
+
+@pytest.mark.parametrize("quote", [None, "Priya said to cancel the blog and the map"])
+def test_a_removal_without_the_clients_real_words_is_ignored(quote: str | None) -> None:
+    changes = check_changes([change("removed", None, "R2", quote=quote)], v1_scope(), [], FOLLOWUP)
+
+    assert changes == []  # signed work is never removed on the model's word alone
+
+
 def test_a_change_to_an_unknown_v1_item_becomes_new() -> None:
     [only] = check_changes(
         [change("changed", "M1", "R42", low=1, likely=1, high=2)],
         v1_scope(),
         [req("M1", "Booking")],
+        FOLLOWUP,
     )
 
     assert only.label == "new"
@@ -128,10 +155,11 @@ def test_v2_removes_dropped_work_adds_priced_extras_and_leaves_v1_alone() -> Non
             change("changed", "M1", "R1", low=1, likely=2, high=4),
             change("new", "M2", None, low=10, likely=16, high=30),
             change("unchanged", "M3", "R3"),
-            change("removed", None, "R2"),
+            change("removed", None, "R2", quote="We're dropping the blog"),
         ],
         v1,
         meeting,
+        FOLLOWUP,
     )
 
     v2 = build_v2(v1, meeting, changes, RATES)
@@ -255,7 +283,9 @@ def test_a_draft_proposal_says_so_and_takes_its_numbers_from_the_scope() -> None
 def test_a_v2_proposal_lists_the_changes_and_the_change_order() -> None:
     v1 = v1_scope()
     meeting = [req("M1", "Online booking")]
-    changes = check_changes([change("new", "M1", None, low=8, likely=12, high=20)], v1, meeting)
+    changes = check_changes(
+        [change("new", "M1", None, low=8, likely=12, high=20)], v1, meeting, FOLLOWUP
+    )
     v2 = build_v2(v1, meeting, changes, RATES)
 
     text = proposal_writer.render(v2, "Bright Smile", approved=True)

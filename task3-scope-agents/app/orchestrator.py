@@ -258,7 +258,7 @@ class Orchestrator:
         self, run: Run, requirements: list[Requirement], human_note: str | None
     ) -> None:
         """The change analyst compares the meeting with the approved scope; code builds v2."""
-        _, _, project = await self._load(run.id)
+        _, meeting, project = await self._load(run.id)
         async with self.team.sessions() as session:
             if run.base_version_id is None:
                 raise RuntimeError("A follow-up run needs an approved version to compare with")
@@ -269,7 +269,7 @@ class Orchestrator:
         changes = await self._step(
             run.id,
             "change_analyst",
-            self._analyze(run.id, v1, requirements, human_note),
+            self._analyze(run.id, v1, requirements, meeting, human_note),
         )
         v2 = change_analyst.build_v2(
             v1, requirements, changes.changes, self.team.settings.scope_rates
@@ -318,12 +318,18 @@ class Orchestrator:
         return Questions(questions=questions)
 
     async def _analyze(
-        self, run_id: int, v1: Scope, requirements: list[Requirement], human_note: str | None
+        self,
+        run_id: int,
+        v1: Scope,
+        requirements: list[Requirement],
+        meeting: Meeting,
+        human_note: str | None,
     ) -> Changes:
         changes = await change_analyst.analyze(
             self.team.claude,
             v1,
             requirements,
+            splitter.parse_turns(meeting.transcript),
             human_note=human_note,
             run_tag=store.run_tag(run_id, "change_analyst"),
         )

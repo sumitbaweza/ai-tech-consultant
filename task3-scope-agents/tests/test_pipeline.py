@@ -143,6 +143,7 @@ CHANGES = {
             "extra_high": 3,
             "role": "developer",
             "reason": "Insurance is new.",
+            "quote": None,
         },
         {
             "label": "new",
@@ -157,6 +158,7 @@ CHANGES = {
             "extra_high": 30,
             "role": "developer",
             "reason": "Not in v1.",
+            "quote": None,
         },
         {
             "label": "removed",
@@ -171,6 +173,7 @@ CHANGES = {
             "extra_high": 0,
             "role": "developer",
             "reason": "Dropped.",
+            "quote": None,
         },
     ]
 }
@@ -364,6 +367,9 @@ async def test_first_meeting_to_approved_v1_then_a_followup_to_v2(
     assert v2["version"] == 2
     labels = [(c["label"], c["v2_requirement_id"]) for c in v2["scope"]["changes"]]
     assert labels == [("changed", "R2"), ("new", "R4"), ("removed", "R3")]
+    # The change analyst read the follow-up transcript itself, not only the extracted list
+    [analysis] = claude.calls("analyze_changes")
+    assert "dropping the blog, nobody will write for it" in analysis["messages"][0]["content"]
     assert v2["scope"]["totals"]["change_order_hours"] == round(2.0 + 17.3, 1)
     assert "## Changes since version 1" in v2["proposal_markdown"]
 

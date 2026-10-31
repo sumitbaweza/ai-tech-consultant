@@ -70,7 +70,12 @@ class FakeClaudeAPI:
     def __init__(self, replies: dict[str, Reply | list[Reply]]) -> None:
         self.replies = replies
         self.requests: list[tuple[str, dict[str, Any]]] = []
-        self._by_system = {load_prompt(name, 1).system: name for name in PROMPT_NAMES}
+        # Every version of every prompt, so a test can run whichever version an agent uses
+        self._by_system = {
+            load_prompt(name, int(path.stem[1:])).system: name
+            for name in PROMPT_NAMES
+            for path in (PROMPTS_DIR / name).glob("v*.md")
+        }
 
     def __call__(self, request: httpx2.Request) -> httpx2.Response:
         body: dict[str, Any] = json.loads(request.content)
