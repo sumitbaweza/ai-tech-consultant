@@ -13,6 +13,8 @@ export function connect(database?: string) {
     username: "inbox",
     password: env.INBOX_DB_PASSWORD,
     max: 5,
+    // Postgres notices ("already exists, skipping") are not errors: don't print them
+    onnotice: () => undefined,
   });
   return drizzle(client, { schema });
 }

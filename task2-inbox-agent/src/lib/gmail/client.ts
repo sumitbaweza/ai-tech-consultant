@@ -26,6 +26,12 @@ export type GmailApi = {
   listChanges(startHistoryId: string): Promise<HistoryChanges | "expired">;
 };
 
+/** Sending lives apart from the sync's four calls, so the sync's test fakes stay small. */
+export type GmailSender = {
+  /** Send a raw RFC 2822 message (base64url) into a thread; returns Gmail's message id. */
+  sendMessage(raw: string, threadId: string | null): Promise<string>;
+};
+
 /** The HTTP status of a failed Google call, if it has one. */
 export function httpStatus(error: unknown): number | undefined {
   if (typeof error !== "object" || error === null) return undefined;
@@ -51,7 +57,7 @@ export function gmailForMailbox(
   db: Db,
   mailbox: MailboxTokens,
   oauthClient: { clientId: string; clientSecret: string },
-): GmailApi {
+): GmailApi & GmailSender {
   const auth = new OAuth2Client(oauthClient);
   auth.setCredentials({
     refresh_token: mailbox.refreshToken,
@@ -106,6 +112,15 @@ export function gmailForMailbox(
         if (httpStatus(error) === 404) return undefined;
         throw error;
       }
+    },
+
+    async sendMessage(raw, threadId) {
+      const response = await api.users.messages.send({
+        userId: "me",
+        requestBody: { raw, ...(threadId === null ? {} : { threadId }) },
+      });
+      if (!response.data.id) throw new Error("Gmail returned no id for the sent message");
+      return response.data.id;
     },
 
     async listChanges(startHistoryId) {

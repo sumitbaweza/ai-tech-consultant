@@ -31,6 +31,7 @@ function message(payload: gmail_v1.Schema$MessagePart, labelIds = ["INBOX", "UNR
         { name: "From", value: '"Lopez, Maria" <maria@example.com>' },
         { name: "To", value: "Support <support@demo.test>, sales@demo.test" },
         { name: "Subject", value: "Logo in the header" },
+        { name: "Message-ID", value: "<CAF1234@mail.example.com>" },
         ...(payload.headers ?? []),
       ],
     },
@@ -116,6 +117,7 @@ describe("parseMessage", () => {
       bodyText: "Where do I change it?",
       receivedAt: new Date(1793349120000),
       isRead: false,
+      messageIdHeader: "<CAF1234@mail.example.com>",
     });
   });
 

@@ -72,6 +72,8 @@ export async function importFixtures(
           bodyText: email.body,
           receivedAt: new Date(email.receivedAt),
           isRead: email.isRead,
+          // A stable Message-ID, so replies thread the same way Gmail ones do
+          messageIdHeader: `<${email.id}@fixtures.directory-demo.test>`,
         })),
       )
       .onConflictDoNothing({ target: [emails.mailboxId, emails.sourceId] })

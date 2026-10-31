@@ -3,7 +3,7 @@ import { FolderNav } from "@/components/folder-nav";
 import { TopBar } from "@/components/top-bar";
 import { getDb } from "@/db/client";
 import { FOLDERS, type Folder } from "@/lib/folders";
-import { unreadCounts } from "@/lib/mailbox";
+import { countNeedsReview, unreadCounts } from "@/lib/mailbox";
 import { getViewer } from "@/lib/viewer";
 
 const NO_UNREAD = Object.fromEntries(FOLDERS.map((folder) => [folder, 0])) as Record<
@@ -15,6 +15,7 @@ const NO_UNREAD = Object.fromEntries(FOLDERS.map((folder) => [folder, 0])) as Re
 export default async function MailLayout({ children }: { children: ReactNode }) {
   const { user, mode, mailbox } = await getViewer();
   const unread = mailbox ? await unreadCounts(getDb(), mailbox.id) : NO_UNREAD;
+  const needsReview = mailbox ? await countNeedsReview(getDb(), mailbox.id) : 0;
 
   return (
     <div className="bg-muted flex h-dvh flex-col">
@@ -29,7 +30,7 @@ export default async function MailLayout({ children }: { children: ReactNode }) 
       )}
       <div className="flex min-h-0 flex-1">
         <aside className="w-60 shrink-0 py-2">
-          <FolderNav unread={unread} />
+          <FolderNav unread={unread} needsReview={needsReview} />
         </aside>
         <main className="bg-background mr-4 mb-4 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl">
           {mailbox ? (

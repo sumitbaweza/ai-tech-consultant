@@ -17,6 +17,7 @@ export type ParsedMessage = {
   bodyText: string;
   receivedAt: Date;
   isRead: boolean;
+  messageIdHeader: string | null;
 };
 
 /** Gmail labels -> our folder. A message can carry several (a sent reply in the inbox
@@ -129,5 +130,6 @@ export function parseMessage(message: gmail_v1.Schema$Message): ParsedMessage | 
     // the sender's machine writes, and drafts may not have.
     receivedAt: new Date(Number(message.internalDate ?? "0")),
     isRead: !labels.includes("UNREAD"),
+    messageIdHeader: header(message.payload, "Message-ID") ?? null,
   };
 }

@@ -5,7 +5,7 @@ import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import { emails, mailboxes } from "@/db/schema";
 import { getEnv } from "@/env";
-import { type GmailApi, gmailForMailbox, isRevokedSignIn } from "@/lib/gmail/client";
+import { type GmailApi, type GmailSender, gmailForMailbox, isRevokedSignIn } from "@/lib/gmail/client";
 import { type ParsedMessage, parseMessage } from "@/lib/gmail/parse";
 
 export const FIRST_SYNC_QUERY = "newer_than:30d";
@@ -80,7 +80,8 @@ export async function syncMailbox(
 
 type MakeApi = (db: Db, mailbox: typeof mailboxes.$inferSelect) => GmailApi;
 
-const realGmail: MakeApi = (db, mailbox) => {
+/** The real Gmail client for a mailbox, from its saved sign-in. */
+export function realGmail(db: Db, mailbox: typeof mailboxes.$inferSelect): GmailApi & GmailSender {
   const env = getEnv();
   if (env.GOOGLE_CLIENT_ID === undefined || env.GOOGLE_CLIENT_SECRET === undefined) {
     throw new Error("Google sign-in is not configured: set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET");
@@ -91,7 +92,7 @@ const realGmail: MakeApi = (db, mailbox) => {
     { ...mailbox, refreshToken: mailbox.refreshToken },
     { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET },
   );
-};
+}
 
 export type MailboxSyncOutcome =
   | { ok: true; result: SyncResult }

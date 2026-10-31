@@ -21,3 +21,18 @@ export const FOLDER_LABELS: Record<Folder, string> = {
 export function isFolder(value: string): value is Folder {
   return (FOLDERS as readonly string[]).includes(value);
 }
+
+// Views the agent adds under the folders: drafts waiting for a human, and what it sent alone
+export const VIEWS = ["needs-review", "auto-sent"] as const;
+export type View = (typeof VIEWS)[number];
+export type MailList = Folder | View;
+
+export const LIST_LABELS: Record<MailList, string> = {
+  ...FOLDER_LABELS,
+  "needs-review": "Needs review",
+  "auto-sent": "Auto-sent",
+};
+
+export function isMailList(value: string): value is MailList {
+  return isFolder(value) || (VIEWS as readonly string[]).includes(value);
+}

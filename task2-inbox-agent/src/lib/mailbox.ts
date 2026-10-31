@@ -1,8 +1,8 @@
 import { and, count, desc, eq, sql } from "drizzle-orm";
 import type { Db } from "@/db/client";
-import { emails, mailboxes } from "@/db/schema";
+import { analyses, drafts, emails, mailboxes } from "@/db/schema";
 import type { Env } from "@/env";
-import { FOLDERS, type Folder, isFolder } from "@/lib/folders";
+import { FOLDERS, type Folder, isFolder, type MailList } from "@/lib/folders";
 
 // What the screens need to know about a mailbox: never its tokens
 const mailboxColumns = {
@@ -94,15 +94,34 @@ export type EmailListRow = {
   snippet: string;
   receivedAt: Date;
   isRead: boolean;
+  intent: string | null;
+  productArea: string | null;
+  riskFlags: string[] | null;
+  draftStatus: string | null;
 };
 
-/** One folder's emails, newest first, with the first 200 characters of the body. */
-export async function listEmails(
-  db: Db,
-  mailboxId: number,
-  folder: Folder,
-  limit = 100,
-): Promise<EmailListRow[]> {
+// The newest draft's status for each email in the list, as a correlated subquery
+const latestDraftStatus = sql<string | null>`(
+  select ${drafts.status} from ${drafts} where ${drafts.emailId} = ${emails.id}
+  order by ${drafts.id} desc limit 1
+)`;
+
+/** Emails waiting for a human: a draft to send, a failed send, an auto-send still in its undo
+ *  window, or a sampled auto-send nobody has checked yet. */
+const needsReview = sql`exists (
+  select 1 from ${drafts} where ${drafts.emailId} = ${emails.id}
+  and (${drafts.status} in ('ready', 'failed', 'scheduled')
+       or (${drafts.status} = 'auto_sent' and ${drafts.sampledForReview} and ${drafts.reviewResult} is null))
+)`;
+const autoSent = sql`exists (
+  select 1 from ${drafts} where ${drafts.emailId} = ${emails.id} and ${drafts.status} = 'auto_sent'
+)`;
+
+/** One folder's or view's emails, newest first, with the first 200 characters of the body,
+ *  the category chips and the draft's state. */
+export async function listEmails(db: Db, mailboxId: number, list: MailList, limit = 100): Promise<EmailListRow[]> {
+  const where =
+    list === "needs-review" ? needsReview : list === "auto-sent" ? autoSent : eq(emails.folder, list);
   return db
     .select({
       id: emails.id,
@@ -111,19 +130,44 @@ export async function listEmails(
       snippet: sql<string>`left(${emails.bodyText}, 200)`,
       receivedAt: emails.receivedAt,
       isRead: emails.isRead,
+      intent: analyses.intent,
+      productArea: analyses.productArea,
+      riskFlags: analyses.riskFlags,
+      draftStatus: latestDraftStatus,
     })
     .from(emails)
-    .where(and(eq(emails.mailboxId, mailboxId), eq(emails.folder, folder)))
+    .leftJoin(analyses, eq(analyses.emailId, emails.id))
+    .where(and(eq(emails.mailboxId, mailboxId), where))
     .orderBy(desc(emails.receivedAt))
     .limit(limit);
 }
 
-/** One email, only if it belongs to this mailbox and folder (so URLs can't reach others). */
-export async function getEmail(db: Db, mailboxId: number, folder: Folder, id: number) {
-  const [email] = await db
-    .select()
+export async function countNeedsReview(db: Db, mailboxId: number): Promise<number> {
+  const [row] = await db
+    .select({ total: count() })
     .from(emails)
-    .where(and(eq(emails.id, id), eq(emails.mailboxId, mailboxId), eq(emails.folder, folder)))
-    .limit(1);
-  return email;
+    .where(and(eq(emails.mailboxId, mailboxId), needsReview));
+  return row?.total ?? 0;
+}
+
+/** One email of this mailbox (so URLs can't reach another mailbox's mail), with its analysis
+ *  and newest draft. Views list mail from any folder, so only folders filter by folder. */
+export async function getEmail(db: Db, mailboxId: number, list: MailList, id: number) {
+  const conditions = [eq(emails.id, id), eq(emails.mailboxId, mailboxId)];
+  if (isFolder(list)) conditions.push(eq(emails.folder, list));
+  const [email] = await db.select().from(emails).where(and(...conditions)).limit(1);
+  if (email === undefined) return undefined;
+  const [analysis] = await db.select().from(analyses).where(eq(analyses.emailId, id));
+  const [draft] = await db.select().from(drafts).where(eq(drafts.emailId, id)).orderBy(desc(drafts.id)).limit(1);
+  return { email, analysis, draft };
+}
+
+/** Does this draft belong to an email of this mailbox? Every action on a draft checks it. */
+export async function draftInMailbox(db: Db, draftId: number, mailboxId: number): Promise<boolean> {
+  const [row] = await db
+    .select({ id: drafts.id })
+    .from(drafts)
+    .innerJoin(emails, eq(emails.id, drafts.emailId))
+    .where(and(eq(drafts.id, draftId), eq(emails.mailboxId, mailboxId)));
+  return row !== undefined;
 }
