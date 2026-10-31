@@ -1,0 +1,22 @@
+[00:00:03] Sumit: Hi Priya, thanks for reading the proposal. You said the board had some changes?
+[00:00:09] Priya Shah: Yes. First, the memberships. The board decided on three membership levels: free, premium at 49 dollars a month, and a group plan at 129 dollars a month for practices with up to five locations.
+[00:00:26] Sumit: Okay, so the group plan is confirmed, with multiple locations on one account.
+[00:00:31] Priya Shah: Right. Each location should show up as its own pin on the map and in search.
+[00:00:38] Sumit: Got it. What else?
+[00:00:40] Priya Shah: The search. We talked about better search. What we really need is to filter dentists by the insurance plans they accept, that's what patients call us about most.
+[00:00:52] Sumit: So filters for city or zip, specialty, and insurance plan.
+[00:00:57] Priya Shah: Exactly those three. Nothing else.
+[00:01:01] Sumit: And the blog?
+[00:01:03] Priya Shah: We're dropping the blog. Jenna is leaving and nobody else will write articles, so please take the blog out of the project.
+[00:01:13] Sumit: Okay, blog removed. Anything new?
+[00:01:16] Priya Shah: Yes, one big thing. Patients should be able to book an appointment online from the dentist's profile, synced to the practice's calendar. Most of our dentists use a scheduling system called Dentrix.
+[00:01:31] Sumit: That's an integration with an outside system, it wasn't in the agreed scope, so we'd quote it separately.
+[00:01:37] Priya Shah: That's fine, please quote it as an extra.
+[00:01:41] Sumit: Okay. Anything else from the first meeting that changed?
+[00:01:45] Priya Shah: The map on the search results stays exactly as we discussed. And we still need the 300 dentists imported before launch.
+[00:01:54] Sumit: Good. And the Mailchimp idea?
+[00:01:57] Priya Shah: Keep it as a nice-to-have, no change there.
+[00:02:01] Sumit: One more, the leads report. Still monthly?
+[00:02:04] Priya Shah: Yes, but we'd also like each dentist to see their own lead count on their dashboard when they log in.
+[00:02:12] Sumit: Okay, I'll update the scope and send you a version 2 with a change order for the extras.
+[00:02:18] Priya Shah: Great, thanks Sumit.

@@ -1,0 +1,25 @@
+Sumit (00:00:03): Hi Mark, good to meet you. What's Zen Yoga Collective, and what brings you to us?
+Mark Ellis (00:00:10): We're an association of about 80 yoga studios in the Pacific Northwest. We want a website where people can find a studio, see class schedules and find workshops and retreats.
+Sumit (00:00:24): Do you have a site today?
+Mark Ellis (00:00:27): An old WordPress site that nobody updates. We want to move to a directory platform where the studios do the updating themselves. We picked Brilliant Directories after a demo.
+Sumit (00:00:40): Okay. So the studios are the members. What does a studio's page need?
+Mark Ellis (00:00:45): Photos, the address, a description, the styles they teach like vinyasa or hot yoga, and links to their Instagram and Facebook.
+Sumit (00:00:57): And the schedules you mentioned?
+Mark Ellis (00:01:00): Each studio should be able to post their events, workshops and retreats on a shared events calendar that visitors can browse by date and by city.
+Sumit (00:01:12): Good. Do visitors book classes on your site?
+Mark Ellis (00:01:15): That's the big one for us. We want visitors to book and pay for a class directly on our site, with the booking synced to each studio's MindBody account. Most of our studios use MindBody.
+Sumit (00:01:30): That's a real integration with MindBody's system. We'll need to look at it carefully, it's usually custom work.
+Mark Ellis (00:01:37): Understood, but it's the main reason people would come to our site instead of Google.
+Sumit (00:01:43): Fair. What else?
+Mark Ellis (00:01:45): Studios want to sell used equipment and post teacher job openings, so some kind of classifieds section where members can post ads.
+Sumit (00:01:55): Okay. How will studios join?
+Mark Ellis (00:01:58): They pay a yearly membership of 199 dollars. One level is fine for now. Payments through PayPal, that's what our treasurer uses.
+Sumit (00:02:10): PayPal, one yearly plan. Anything for visitors beyond search?
+Mark Ellis (00:02:14): A newsletter signup in the footer. And the search has to filter by yoga style and by city, those are the two things everyone asks for.
+Sumit (00:02:24): Got it. Any content to bring over from WordPress?
+Mark Ellis (00:02:28): About 40 blog posts we'd like to keep. Copying them over by hand is fine, we don't need anything fancy.
+Sumit (00:02:37): And design?
+Mark Ellis (00:02:39): Calm, lots of white space, our green logo. Must look great on mobile.
+Sumit (00:02:45): Timeline and budget?
+Mark Ellis (00:02:47): No hard deadline, but we'd like it within three months. Budget is flexible for the booking piece if it really works.
+Sumit (00:02:56): Thanks Mark. I'll send a scope and some questions.

@@ -1,0 +1,49 @@
+[00:00:04] Sumit: Hi Priya, thanks for making the time. Before we start, can you tell me a bit about Bright Smile and what you're hoping to build?
+[00:00:15] Priya Shah: Sure. We're a network of about 300 independent dentists across the state. Right now patients find them through a spreadsheet we email around, which is embarrassing. We want a proper directory website where patients can search for a dentist near them.
+[00:00:38] Sumit: Got it. And you're set on Brilliant Directories as the platform?
+[00:00:42] Priya Shah: Yes, our board already bought the license. So we want to use what it has as much as possible and not pay for a lot of custom development.
+[00:00:55] Sumit: That makes sense. Let's go through what you need. Who's going to use the site?
+[00:01:02] Priya Shah: Two groups. Patients, who search and contact a dentist. And the dentists themselves, who should be able to log in and update their own listing, their hours, their photos, that kind of thing.
+[00:01:20] Sumit: So dentists are members with their own profile pages.
+[00:01:24] Priya Shah: Exactly. Every dentist needs a profile page with their photo, address, phone, opening hours, the services they offer and the insurance plans they accept.
+[00:01:40] Sumit: How will the 300 dentists get onto the site? Will they sign up themselves?
+[00:01:47] Priya Shah: No, we have all of them in a spreadsheet already. We need you to import all 300 dentists from our spreadsheet so the site isn't empty on launch day. Then they get an email to claim their listing.
+[00:02:05] Sumit: Okay, an import plus a claim-your-listing email. What columns does the spreadsheet have?
+[00:02:11] Priya Shah: Name, practice name, address, phone, email, specialty. Some have a website. I can send it to you.
+[00:02:22] Sumit: Great. Now the search. How should patients find a dentist?
+[00:02:28] Priya Shah: Honestly the search on most of these sites is terrible. We need the search to be much better than the usual directory search. People should find the right dentist quickly.
+[00:02:40] Sumit: When you say better, what does a patient usually search by?
+[00:02:45] Priya Shah: Location for sure, city or zip code. And specialty, like orthodontist or pediatric dentist. Maybe insurance, but I'm not sure that's possible.
+[00:02:58] Sumit: We'll check what the platform offers there. Do you want a map on the search results?
+[00:03:03] Priya Shah: Yes, please show the dentists on a Google map next to the search results. Patients like to see who is closest.
+[00:03:14] Sumit: Okay. Let's talk about money. Will dentists pay to be listed?
+[00:03:19] Priya Shah: Yes. We want two membership levels. A free basic listing, and a paid premium listing for 49 dollars a month that shows up higher in search and can add more photos.
+[00:03:35] Sumit: So paid plans with recurring billing. Which payment provider do you use?
+[00:03:40] Priya Shah: We use Stripe for everything else, so Stripe please.
+[00:03:45] Sumit: Noted. Anything else for the dentists?
+[00:03:49] Priya Shah: New dentists who sign up on their own should not go live right away. We need to approve every new member before their listing appears on the site, because we have to check their license.
+[00:04:05] Sumit: Understood, an approval step for new members. What about patients, do they need accounts?
+[00:04:11] Priya Shah: No accounts for patients. But they should be able to leave a review and a star rating on a dentist's profile. We'd want to approve reviews before they show, though, to stop spam.
+[00:04:26] Sumit: Reviews with moderation. And contacting a dentist?
+[00:04:30] Priya Shah: A contact form on each profile that sends the patient's message straight to the dentist's email. And we'd like a copy of every lead so we can show the dentists how much business we send them.
+[00:04:46] Sumit: Okay, lead forms with a copy to you. Content-wise, what pages do you need besides the directory?
+[00:04:53] Priya Shah: A home page, an about page, a contact page. And a blog, we want to post dental health articles every week to help with Google.
+[00:05:05] Sumit: Who will write the articles?
+[00:05:08] Priya Shah: Our marketing person, Jenna. She just needs to be able to post them herself.
+[00:05:15] Sumit: And the design?
+[00:05:18] Priya Shah: We have a logo and brand colors, blue and white. We want it to look clean and modern, nothing fancy. And it has to work well on phones, most patients will search on their phone.
+[00:05:33] Sumit: Do you have a domain?
+[00:05:35] Priya Shah: Yes, brightsmilenetwork.com. It's with GoDaddy. Someone will have to point it at the new site.
+[00:05:44] Sumit: We can handle that. Any integrations, like a newsletter?
+[00:05:48] Priya Shah: We use Mailchimp. It would be nice if new members were added to our Mailchimp list automatically, but that's a nice-to-have, only if there's budget.
+[00:06:01] Sumit: Okay. Timeline?
+[00:06:03] Priya Shah: Our annual conference is in ten weeks. We want to launch the site there, so it must be live before the conference.
+[00:06:14] Sumit: Ten weeks is doable for this. Let me go back to the memberships for a second. You said two levels, free and premium.
+[00:06:22] Priya Shah: Right. Actually, the board also talked about a third level for big multi-location practices, with up to five locations on one account. I'd say three membership levels, but let me confirm with the board.
+[00:06:40] Sumit: That changes the setup a little, so please let me know. Anything about reporting?
+[00:06:45] Priya Shah: Yes, I want a monthly report of how many leads each dentist got. Even a simple export is fine.
+[00:06:53] Sumit: Okay. And training, will your team manage the site after launch?
+[00:06:58] Priya Shah: Yes, Jenna and I will run it. We'll need someone to show us how to approve members, approve reviews and post articles. One training session should be enough.
+[00:07:12] Sumit: Great. I think I have a good picture. I'll come back with a scope, an estimate and a few questions.
+[00:07:19] Priya Shah: Perfect. Our budget is around 6,000 dollars, by the way, so please tell us if anything pushes it over.
+[00:07:27] Sumit: Will do. Thanks, Priya.
