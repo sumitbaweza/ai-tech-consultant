@@ -27,6 +27,7 @@ AGENT_TITLES = {
     "human_edit": "Human · edits",
     "human_send_back": "Human · sent back",
     "human_approval": "Human · approved",
+    "learner": "Learner (Sonnet): estimation rules from the edits",
 }
 
 STATUS_BADGES = {

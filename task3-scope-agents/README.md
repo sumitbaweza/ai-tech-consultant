@@ -21,9 +21,14 @@ One file per agent in `app/agents/`; every handoff is a Pydantic object from `ap
 | 7 Reviewer | `reviewer.py` | Opus 5.5 | Code checks the joins (every requirement has a task, every task a requirement, settings priced as settings); Opus reads the meeting and the estimate. Sends it back to step 6 at most `MAX_REVIEW_ROUNDS` times (default 1) | `Review` |
 | 8 Proposal writer | `proposal_writer.py` | Sonnet 5.5 | Writes the words only; code renders every number from the scope | `ProposalDraft` |
 | Human approval | `human_approval.py` | none | Edit hours and tasks, approve, or send back with a note. Edits are recorded against the estimator's own hours | `EditRecord` |
-| Change analyst | `change_analyst.py` | Sonnet 5.5 | Follow-up meetings: steps 1–3 again, then labels each item unchanged, changed, new or removed against the approved scope; code builds v2 and the change order | `ChangeItem` |
+| Change analyst | `change_analyst.py` | Sonnet 5.5 | Follow-up meetings: steps 1–3 again, then reads the new requirements **and the transcript** and labels each item unchanged, changed, new or removed against the approved scope (a removal must quote the client); code builds v2 and the change order | `ChangeItem` |
+| Learner | `learner.py` | Sonnet 5.5, only when a human edited hours | After an approval, turns the hour edits into estimation rules: a new playbook version that the estimator follows from then on | `EstimationRule` |
 
 `app/orchestrator.py` runs them in order and saves each output before the next agent starts. A run's status says where it is: `running`, `awaiting_answers`, `awaiting_approval`, `approved` or `failed` (with the reason; **Retry** resumes from the saved steps).
+
+## How it learns
+
+Every task keeps the estimator's own hours (`ai_hours`) next to the hours a human approved. After an approval with hour edits, the learner updates the **estimation playbook** (`scope.playbook_versions`): existing rules kept or revised, at most three new ones, saved as a new version. The estimator (prompt `estimate_tasks` v2) follows the active version, and each scope records which version it used. The **Learning** screen (and `GET /v1/playbook`) shows the gap between AI and approved hours per playbook version, lower is better, and makes an older version active again if a lesson made things worse (`POST /v1/playbook/{version}/activate`).
 
 ## Rules it keeps
 

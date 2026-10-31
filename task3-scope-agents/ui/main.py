@@ -8,7 +8,7 @@ Every screen talks to the scope API (ui/api.py), never to the database.
 import streamlit as st
 
 from ui.common import PAGES, sidebar
-from ui.screens import meeting, run, scope
+from ui.screens import learning, meeting, run, scope
 
 st.set_page_config(page_title="Meeting to Scope", layout="wide")
 sidebar()
@@ -19,6 +19,7 @@ pages = [
     st.Page(
         scope.render, title="Scope and approval", icon=":material/fact_check:", url_path="scope"
     ),
+    st.Page(learning.render, title="Learning", icon=":material/school:", url_path="learning"),
 ]
 PAGES.update({page.url_path: page for page in pages})
 st.navigation(pages).run()

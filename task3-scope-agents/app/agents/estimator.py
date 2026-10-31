@@ -14,11 +14,20 @@ import json
 
 from pydantic import BaseModel, Field
 
-from app.handoffs import FitResult, Hours, Question, Requirement, Review, Role, Task
+from app.handoffs import (
+    EstimationRule,
+    FitResult,
+    Hours,
+    Question,
+    Requirement,
+    Review,
+    Role,
+    Task,
+)
 from app.llm import Claude
 from app.text import as_data
 
-PROMPT, VERSION = "estimate_tasks", 1
+PROMPT, VERSION = "estimate_tasks", 2
 # What the model sees of its previous tasks on a second round
 PREVIOUS_FIELDS = {"id", "requirement_ids", "title", "role", "low", "likely", "high", "basis"}
 
@@ -55,6 +64,7 @@ def _content(
     feedback: Review | None,
     human_note: str | None,
     previous: list[Task] | None,
+    rules: list[EstimationRule],
 ) -> str:
     fit_by_id = {result.requirement_id: result for result in fit}
     listed = [
@@ -79,6 +89,12 @@ def _content(
         "Clarifying questions, answered by the client or assumed:\n\n"
         + as_data("clarifications", json.dumps(answers, indent=1)),
     ]
+    if rules:
+        playbook = [rule.model_dump() for rule in rules]
+        parts.append(
+            "The estimation playbook, learned from human corrections:\n\n"
+            + as_data("playbook", json.dumps(playbook, indent=1))
+        )
     if previous:
         tasks = [task.model_dump(include=PREVIOUS_FIELDS) for task in previous]
         parts.append("Your previous estimate, to correct:\n\n" + json.dumps(tasks, indent=1))
@@ -127,9 +143,10 @@ async def estimate(
     feedback: Review | None = None,
     human_note: str | None = None,
     previous: list[Task] | None = None,
+    rules: list[EstimationRule] | None = None,
     run_tag: str | None = None,
 ) -> EstimateResult:
-    content = _content(requirements, fit, questions, feedback, human_note, previous)
+    content = _content(requirements, fit, questions, feedback, human_note, previous, rules or [])
     reply = await claude.call(PROMPT, VERSION, content, Estimate, run_tag=run_tag)
     known = {r.id for r in requirements}
     return EstimateResult(

@@ -206,6 +206,15 @@ def scripted_claude() -> FakeClaudeAPI:
             "review_scope": {"verdict": "approve", "summary": "Fine.", "issues": []},
             "write_proposal": PROPOSAL,
             "analyze_changes": CHANGES,
+            "learn_estimation_rules": {
+                "rules": [
+                    {
+                        "text": "Search work takes 6 likely hours, not 2",
+                        "role": "developer",
+                        "evidence": "Do R2: AI 2 likely hours, approved 6",
+                    }
+                ]
+            },
         }
     )
 
@@ -448,6 +457,69 @@ async def test_a_bad_model_reply_fails_the_run_with_the_reason_and_retry_resumes
     assert run["status"] == "awaiting_approval", run["error"]
     fits = next(s for s in run["steps"] if s["agent"] == "fit_checker")["output"]["results"]
     assert {(f["kind"], f["brain"]) for f in fits} == {("unverified", "unavailable")}
+
+
+@pytest.mark.respx(assert_all_called=False)
+async def test_an_approved_edit_teaches_the_next_estimate_and_can_be_rolled_back(
+    client: tuple[AsyncClient, FakeClaudeAPI], respx_mock: respx.MockRouter
+) -> None:
+    http, claude = client
+    claude.replies["clarify_requirements"] = {"questions": []}
+    claude.replies["estimate_tasks"] = estimate("R1", "R2", "R3")
+    brain_routes(respx_mock, search_reply(), ask_reply("x"))
+
+    async def draft(name: str) -> dict[str, Any]:
+        project = await call(http, "POST", "/v1/projects", 201, name=name, client="C")
+        run = await call(
+            http,
+            "POST",
+            f"/v1/projects/{project['id']}/meetings",
+            202,
+            title="M",
+            transcript=MEETING_1,
+        )
+        run = await call(http, "GET", f"/v1/runs/{run['id']}", 200)
+        return await call(http, "GET", f"/v1/versions/{run['version']['id']}", 200)
+
+    # Nothing learned yet: the first scope is estimated without a playbook
+    first = await draft("A")
+    assert first["scope"]["playbook_version"] is None
+    tasks = [
+        {k: t[k] for k in ("id", "requirement_ids", "title", "role", "low", "likely", "high")}
+        for t in first["scope"]["tasks"]
+    ]
+    tasks[1].update(low=4, likely=6, high=9)
+    await call(
+        http,
+        "PUT",
+        f"/v1/versions/{first['id']}/scope",
+        200,
+        by="Sumit",
+        tasks=tasks,
+        assumptions=[],
+        exclusions=[],
+    )
+    await call(http, "POST", f"/v1/versions/{first['id']}/approve", 200, by="Sumit")
+
+    # The approval's edit became playbook v1, measured against the AI's hours
+    playbook = await call(http, "GET", "/v1/playbook", 200)
+    assert playbook["active_version"] == 1
+    assert playbook["versions"][0]["rules"][0]["text"] == "Search work takes 6 likely hours, not 2"
+    assert playbook["versions"][0]["learned_from_id"] == first["id"]
+    [gap] = playbook["gaps"]
+    assert (gap["playbook_version"], gap["scopes"]) == (None, 1)
+    assert gap["gap_percent"] > 0
+
+    # The next estimate follows it, and says which version it used
+    second = await draft("B")
+    assert second["scope"]["playbook_version"] == 1
+    sent = claude.calls("estimate_tasks")[-1]["messages"][0]["content"]
+    assert "Search work takes 6 likely hours, not 2" in sent
+
+    # Rollback: an unknown version is refused; a known one becomes active again
+    await call(http, "POST", "/v1/playbook/9/activate", 404)
+    rolled = await call(http, "POST", "/v1/playbook/1/activate", 200)
+    assert rolled["active_version"] == 1
 
 
 async def test_the_api_needs_a_key() -> None:

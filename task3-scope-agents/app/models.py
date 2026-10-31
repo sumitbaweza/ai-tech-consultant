@@ -219,3 +219,27 @@ class LLMCall(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
     __table_args__ = (Index(None, "run_tag"),)
+
+
+class PlaybookVersion(Base):
+    """One version of the estimation playbook: rules learned from how humans edited hours.
+
+    Each approval with hour edits makes a new version from the active one; old versions stay,
+    and a rollback makes an older one active again. The estimator reads the active version,
+    and each scope records which version it used, so the AI-vs-approved hours gap can be
+    compared from version to version.
+    """
+
+    __tablename__ = "playbook_versions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    version: Mapped[int] = mapped_column(unique=True)
+    # {"rules": [app.handoffs.EstimationRule, ...]}
+    rules: Mapped[dict[str, Any]]
+    # The approved scope version whose edits produced it; None for a rollback
+    learned_from_id: Mapped[int | None] = mapped_column(
+        ForeignKey("scope_versions.id", ondelete="SET NULL")
+    )
+    note: Mapped[str | None]
+    is_active: Mapped[bool] = mapped_column(server_default="false")
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())

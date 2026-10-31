@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from app import store
 from app.api.deps import require_api_key
-from app.api.routes import projects, runs, versions
+from app.api.routes import playbook, projects, runs, versions
 from app.brain_client import Brain, make_brain_client
 from app.config import get_settings
 from app.db import SessionFactory
@@ -63,6 +63,7 @@ v1 = APIRouter(prefix="/v1", dependencies=[Depends(require_api_key)])
 v1.include_router(projects.router)
 v1.include_router(runs.router)
 v1.include_router(versions.router)
+v1.include_router(playbook.router)
 app.include_router(v1)
 
 

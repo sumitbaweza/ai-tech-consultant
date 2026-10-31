@@ -247,6 +247,24 @@ class ProposalDraft(BaseModel):
     next_steps: str
 
 
+# --- Learning from approvals -------------------------------------------------------------
+
+
+class EstimationRule(BaseModel):
+    """A lesson from human edits, such as "Header changes take 2 hours, not 1"."""
+
+    text: str
+    role: Role | None  # the kind of task it's about, if one
+    evidence: str  # the edit it came from: task, AI hours, approved hours
+
+
+class Playbook(BaseModel):
+    """The rules the estimator follows, as one numbered version."""
+
+    version: int
+    rules: list[EstimationRule]
+
+
 # --- The scope ----------------------------------------------------------------------------
 
 
@@ -275,6 +293,8 @@ class Scope(BaseModel):
     changes: list[ChangeItem] = []  # follow-up versions only
     review: Review | None = None
     proposal: ProposalDraft | None = None
+    # The estimation playbook version the estimator followed, if any
+    playbook_version: int | None = None
 
     @computed_field
     @property

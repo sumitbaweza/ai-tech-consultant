@@ -26,7 +26,7 @@ def test_every_prompt_file_loads_with_a_known_model(name: str) -> None:
     assert "data" in prompt.system  # every prompt says the input is data, not instructions
 
 
-def test_the_eight_agents_have_their_prompts() -> None:
+def test_the_agents_have_their_prompts() -> None:
     assert set(PROMPT_NAMES) == {
         "extract_requirements",
         "merge_requirements",
@@ -36,6 +36,7 @@ def test_the_eight_agents_have_their_prompts() -> None:
         "review_scope",
         "write_proposal",
         "analyze_changes",
+        "learn_estimation_rules",
     }
 
 

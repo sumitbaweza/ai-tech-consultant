@@ -11,6 +11,7 @@ import httpx
 import streamlit as st
 
 from app.agents.human_approval import TaskEdit
+from app.api.routes.playbook import PlaybookView
 from app.api.views import ProjectView, RunView, VersionView
 from app.config import get_settings
 
@@ -96,6 +97,15 @@ class ScopeAPI:
         if response.is_error:
             raise ScopeAPIError(_reason(response))
         return response.text
+
+    # --- Learning -------------------------------------------------------------------------
+
+    def playbook(self) -> PlaybookView:
+        return PlaybookView.model_validate(self._request("GET", "/v1/playbook"))
+
+    def activate(self, version: int) -> PlaybookView:
+        reply = self._request("POST", f"/v1/playbook/{version}/activate")
+        return PlaybookView.model_validate(reply)
 
     def _request(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
         try:

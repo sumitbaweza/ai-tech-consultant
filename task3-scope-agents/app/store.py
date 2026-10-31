@@ -12,11 +12,12 @@ from pydantic import BaseModel
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.handoffs import Scope
+from app.handoffs import EstimationRule, Playbook, Scope
 from app.models import (
     Base,
     LLMCall,
     Meeting,
+    PlaybookVersion,
     Project,
     Run,
     RunKind,
@@ -227,6 +228,47 @@ async def approve(
     )
     await session.commit()
     return version
+
+
+# --- The estimation playbook -------------------------------------------------------------
+
+
+async def active_playbook(session: AsyncSession) -> Playbook | None:
+    """The rules the estimator follows now, or None before anything was learned."""
+    row = await session.scalar(select(PlaybookVersion).where(PlaybookVersion.is_active))
+    return Playbook.model_validate({"version": row.version, **row.rules}) if row else None
+
+
+async def save_playbook(
+    session: AsyncSession, rules: list[EstimationRule], learned_from_id: int | None
+) -> Playbook:
+    """Save rules as the next playbook version and make it the active one."""
+    highest = await session.scalar(select(func.max(PlaybookVersion.version)))
+    playbook = Playbook(version=(highest or 0) + 1, rules=rules)
+    await session.execute(update(PlaybookVersion).values(is_active=False))
+    session.add(
+        PlaybookVersion(
+            version=playbook.version,
+            rules={"rules": [rule.model_dump(mode="json") for rule in rules]},
+            learned_from_id=learned_from_id,
+            is_active=True,
+        )
+    )
+    await session.commit()
+    return playbook
+
+
+async def activate_playbook(session: AsyncSession, version: int) -> None:
+    """Rollback (or roll forward): make an existing version the active one."""
+    exists = await session.scalar(
+        select(PlaybookVersion.id).where(PlaybookVersion.version == version)
+    )
+    if exists is None:
+        raise NotFound(f"Playbook version {version} doesn't exist")
+    await session.execute(
+        update(PlaybookVersion).values(is_active=PlaybookVersion.version == version)
+    )
+    await session.commit()
 
 
 # --- Cost ---------------------------------------------------------------------------------

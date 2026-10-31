@@ -32,18 +32,22 @@ from app.agents import (
     estimator,
     extractor,
     fit_checker,
+    learner,
     merger,
     proposal_writer,
     reviewer,
     splitter,
 )
+from app.agents.human_approval import FieldChange
 from app.brain_client import Brain
 from app.config import Settings
 from app.handoffs import (
     ChangeItem,
     Chunk,
+    EstimationRule,
     ExtractedItem,
     FitResult,
+    Playbook,
     Question,
     Requirement,
     Review,
@@ -76,6 +80,18 @@ class Questions(BaseModel):
 
 class Changes(BaseModel):
     changes: list[ChangeItem]
+
+
+class LearnedRules(BaseModel):
+    """The learner's new rules; None when the approval taught nothing."""
+
+    rules: list[EstimationRule] | None
+
+
+class HumanEdit(BaseModel):
+    """Enough of a human_edit step to see which tasks were removed."""
+
+    changes: list[FieldChange]
 
 
 class Decision(BaseModel):
@@ -195,6 +211,7 @@ class Orchestrator:
             answered = await store.latest_output(session, run_id, "human_answers", Questions)
             asked = await store.latest_output(session, run_id, "consultant", Questions)
             draft = await store.run_version(session, run_id)
+            playbook = await store.active_playbook(session)
         if requirements is None or fits is None or asked is None:
             raise RuntimeError("Steps 3 to 5 haven't finished; retry the run")
         questions = (answered or asked).questions
@@ -218,6 +235,7 @@ class Orchestrator:
                     feedback=feedback,
                     human_note=human_note,
                     previous=previous,
+                    rules=playbook.rules if playbook else None,
                     run_tag=tag,
                 ),
             )
@@ -251,6 +269,7 @@ class Orchestrator:
             assumptions=estimate.assumptions + unanswered,
             exclusions=estimate.exclusions,
             review=review,
+            playbook_version=playbook.version if playbook else None,
         )
         await self._write_and_save(run, project, scope)
 
@@ -294,6 +313,35 @@ class Orchestrator:
             await store.save_draft(session, run, scope)
             await store.set_status(session, run.id, RunStatus.AWAITING_APPROVAL)
 
+    async def learn(self, version_id: int) -> None:
+        """After an approval: turn the human's hour edits into a new playbook version.
+
+        Saved as a "learner" step on the approved run. A failure is logged on that step and
+        never touches the approval itself."""
+        async with self.team.sessions() as session:
+            version = await store.get(session, ScopeVersion, version_id)
+            edits = [
+                HumanEdit.model_validate(step.output)
+                for step in await store.steps(session, version.run_id)
+                if step.agent == "human_edit" and step.output is not None
+            ]
+            current = await store.active_playbook(session)
+        removed = [c.before or "" for e in edits for c in e.changes if c.field == "removed"]
+        scope = Scope.model_validate(version.scope)
+        try:
+            rules = await self._step(
+                version.run_id,
+                "learner",
+                self._learn(version.run_id, current, scope, removed),
+            )
+        except Exception:
+            logger.exception("Learning from version %s failed", version_id)
+            return
+        if rules.rules is None:
+            return  # nothing to learn: no edits, or no change to the rules
+        async with self.team.sessions() as session:
+            await store.save_playbook(session, rules.rules, version_id)
+
     # --- Agent calls wrapped so each returns one object to save ---------------------------
 
     async def _merge(self, run_id: int, items: list[ExtractedItem], prefix: str) -> Requirements:
@@ -316,6 +364,13 @@ class Orchestrator:
         tag = store.run_tag(run_id, "consultant")
         questions = await consultant.clarify(self.team.claude, transcript, requirements, fits, tag)
         return Questions(questions=questions)
+
+    async def _learn(
+        self, run_id: int, current: Playbook | None, scope: Scope, removed: list[str]
+    ) -> LearnedRules:
+        tag = store.run_tag(run_id, "learner")
+        rules = await learner.learn(self.team.claude, current, scope, removed, tag)
+        return LearnedRules(rules=rules)
 
     async def _analyze(
         self,

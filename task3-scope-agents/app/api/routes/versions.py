@@ -80,7 +80,9 @@ async def edit_scope(
 
 
 @router.post("/versions/{version_id}/approve")
-async def approve(version_id: int, body: Approval, session: SessionDep) -> VersionView:
+async def approve(
+    version_id: int, body: Approval, session: SessionDep, orchestrator: OrchestratorDep
+) -> VersionView:
     """Approve the draft: from now on the proposal can go to the client. The project's
     previous approved version is marked superseded and kept."""
     version = await _draft(session, version_id)
@@ -92,6 +94,8 @@ async def approve(version_id: int, body: Approval, session: SessionDep) -> Versi
         )
     )
     version = await store.approve(session, version, body.by, body.note)
+    # The human's hour edits become estimation rules, in the background
+    launch(orchestrator.learn(version.id))
     return await version_view(session, version)
 
 

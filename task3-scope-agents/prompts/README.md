@@ -12,6 +12,7 @@ Each prompt is a folder with one file per version: `estimate_tasks/v1.md`, `esti
 | `review_scope` | 7 · Reviewer | Opus 5.5 | One call per scope; a stronger model than the one it checks |
 | `write_proposal` | 8 · Proposal writer | Sonnet 5.5 | Client-facing words; no numbers (code renders those) |
 | `analyze_changes` | Change analyst | Sonnet 5.5 | Matching a follow-up to the agreed scope by meaning |
+| `learn_estimation_rules` | Learner | Sonnet 5.5 | Rules from hour edits; bad rules would skew every later estimate |
 
 These are the blueprint's starting choices. Each is to be confirmed with 20–30 eval cases (quality, cost, latency) before the write-up.
 
