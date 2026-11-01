@@ -1,73 +1,50 @@
 # AI Tech Consultant
 
-One system that does a tech consultant's slow work. It knows the product (Task 1, Knowledge Brain), answers the inbox (Task 2, Inbox Agent), and turns client meetings into a scope of work (Task 3, Meeting to Scope). Tasks 2 and 3 reach Task 1 only through its API.
+One system that does a tech consultant's slow work for an agency that builds sites on Brilliant Directories.
 
-> Work in progress: Day 1 of 4. This page gets its final form on Day 4.
+- **Task 1, Knowledge Brain (Python):** crawls the help center's 1,700 pages and 6,458 screenshots, keeps them fresh, and answers questions with citations. When it can't answer, it says so and asks a human expert, whose answer it then reuses.
+- **Task 2, Inbox Agent (TypeScript):** classifies support email, drafts replies from the Brain's facts, learns from every edit, and earns auto-send for one kind of email at a time.
+- **Task 3, Meeting to Scope (Python):** a team of agents turns client meetings into a scope, an hours estimate and a proposal. A human approves before anything reaches the client.
+
+Tasks 2 and 3 use the Brain only through its HTTP API. Why it's built this way: [DESIGN.md](DESIGN.md). How well it works: [EVALS.md](EVALS.md). How AI was used to build it: [AI_LOG.md](AI_LOG.md).
 
 ## Run it
 
-You need Docker Desktop (on Windows, with WSL2).
+You need Docker Desktop (on Windows, with WSL2) and an Anthropic API key with credit.
 
-1. `cp .env.example .env`, then add your `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY`.
-2. `make up`
-3. Open the Brain's screens at http://localhost:8501 and sign in. The example user in `.env.example` is `admin` with the password `brain-demo`; make your own with `uv run --directory task1-knowledge-brain python -m ui.passwords <name>`.
-   On a first start, `brain-seed` loads `task1-knowledge-brain/seed/brain-seed.jsonl.gz`, a finished crawl with its screenshot descriptions and embeddings (about 1 minute), so the Brain answers at once. To crawl the help center again, use "Check now" on the Sources screen, or `POST /v1/sitemaps/{id}/check`; only changed pages are embedded again. To refresh the snapshot from your own database: `uv run --directory task1-knowledge-brain python -m app.seed export`.
-4. The Brain's API docs are at http://localhost:8000/docs. Use a key from `BRAIN_API_KEYS` in `.env`. `POST /v1/ask` answers with citations: Haiku takes easy questions and Sonnet the rest, and `route` in the reply says which model answered and why. `POST /v1/capabilities/check` says whether a built-in setting already does what a client asks for.
-5. Open the Inbox Agent at http://localhost:3000. Without Google settings it runs in fixtures mode, on the emails in `task2-inbox-agent/fixtures/emails.json`: sign in with `INBOX_DEMO_PASSWORD` from `.env` (`inbox-demo` in `.env.example`).
-6. Open Meeting to Scope at http://localhost:8502: pick a sample transcript from `task3-scope-agents/transcripts/` (stand-ins until the recorded meetings), watch the agents, answer their questions, then edit and approve the scope. Its API docs are at http://localhost:8002/docs (key: `SCOPE_API_KEYS` in `.env`). It asks the Brain with `BRAIN_API_KEY`, so set that in `.env` too.
+1. `cp .env.example .env`, then set `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY`.
+2. `make up`. Without make: `docker compose up -d --build`.
 
-Windows has no `make` built in, so here is each target without it:
+The first start loads a finished crawl from `task1-knowledge-brain/seed/` in about a minute, so the Brain answers straight away.
 
-| Make target | The same thing without make |
-| --- | --- |
-| `make up` | `docker compose up -d --build` |
-| `make down` | `docker compose down` |
-| `make logs` | `docker compose logs -f` |
-| `make ps` | `docker compose ps` |
-| `make psql` | `docker compose exec postgres psql -U postgres -d consultant` |
-| `make test` | `uv run --directory task1-knowledge-brain pytest` |
-| `make lint` | `uv run --directory task1-knowledge-brain ruff check .`, then `ruff format --check .`, then `pyright` the same way |
-| `make eval-check` | `uv run --directory task1-knowledge-brain python -m evals.run --check` |
-| `make eval` | `uv run --directory task1-knowledge-brain python -m evals.run` |
-| `make eval-experts` | `uv run --directory task1-knowledge-brain python -m evals.run --expert-replay` |
-| `make inbox-install` | `pnpm --dir task2-inbox-agent install --frozen-lockfile` |
-| `make inbox-dev` | `pnpm --dir task2-inbox-agent dev` |
-| `make inbox-test` | `pnpm --dir task2-inbox-agent test` |
-| `make inbox-lint` | `pnpm --dir task2-inbox-agent typecheck`, then `pnpm --dir task2-inbox-agent lint` |
-| `make scope-test` | `uv run --directory task3-scope-agents pytest` |
-| `make scope-lint` | `uv run --directory task3-scope-agents ruff check .`, then `ruff format --check .`, then `pyright` the same way |
+| Open | What it is | Sign in with |
+| --- | --- | --- |
+| http://localhost:8501 | Brain screens: dashboard, sources, chat, expert queue, history | `admin` / `brain-demo` (example user in `.env.example`) |
+| http://localhost:3000 | Inbox Agent, on 50 demo emails | `INBOX_DEMO_PASSWORD` (`inbox-demo`) |
+| http://localhost:8502 | Meeting to Scope | Your name, in the sidebar |
+| http://localhost:8000/docs | Brain API | Header `X-API-Key`: a key from `BRAIN_API_KEYS` |
+| http://localhost:8002/docs | Scope API | Header `X-API-Key`: a key from `SCOPE_API_KEYS` |
+| http://localhost:8001/mcp | The Brain as MCP tools | None (local only) |
 
-Tests, lint and evals run on your machine and need [uv](https://docs.astral.sh/uv/). `make eval-check` checks the eval cases against the crawled pages for free; `make eval` runs them through the real answer path, needs both API keys, and saves the results in `task1-knowledge-brain/evals/results/`. Add `--model sonnet` or `--model haiku` to the `python -m evals.run` command to compare the router (the default, `auto`) with each model alone. The inbox's checks need Node 22 and pnpm (`npm install -g corepack@latest`, then `corepack enable pnpm`).
+The inbox uses the demo emails until you add a Google OAuth client and set `INBOX_MODE=gmail`. Nothing calls Claude at start-up: you start each draft, answer or meeting run yourself.
 
-## Use the Brain from Claude (MCP)
+## Check it
 
-`make up` also starts `brain-mcp`, which offers the Brain as four MCP tools: `kb_ask` (an answer with citations), `kb_search` (matching chunks, no LLM), `kb_get_article` (one article in full) and `check_capability` (whether a built-in setting covers a client requirement). Each tool calls the Brain's API with the first key in `BRAIN_API_KEYS`, so the API's rules apply.
+| What | With make | Without make |
+| --- | --- | --- |
+| Task 1 tests (223) | `make test` | `uv run --directory task1-knowledge-brain pytest` |
+| Task 2 tests (80) | `make inbox-test` | `pnpm --dir task2-inbox-agent test` |
+| Task 3 tests (69) | `make scope-test` | `uv run --directory task3-scope-agents pytest` |
+| Lint and strict types | `make lint`, `make inbox-lint`, `make scope-lint` | See the `Makefile` |
+| Task 1 eval | `make eval` | `uv run --directory task1-knowledge-brain python -m evals.run` |
 
-- **Claude Code**, over HTTP:
-
-  ```bash
-  claude mcp add --transport http knowledge-brain http://127.0.0.1:8001/mcp
-  ```
-
-- **Claude Desktop**, over stdio: add this to `claude_desktop_config.json`, with your own path to the repo. It needs uv, and the API running.
-
-  ```json
-  {
-    "mcpServers": {
-      "knowledge-brain": {
-        "command": "uv",
-        "args": ["run", "--directory", "C:/path/to/repo/task1-knowledge-brain", "python", "-m", "app.mcp_server"]
-      }
-    }
-  }
-  ```
+The tests use a fake Claude and a fake Brain, so they cost nothing. Database tests need Postgres running. The Python tasks need [uv](https://docs.astral.sh/uv/); the inbox needs Node 22 and pnpm (`npm install -g corepack@latest`, then `corepack enable pnpm`).
 
 ## Layout
 
-| Folder | What it holds | Language |
+| Folder | What | Details |
 | --- | --- | --- |
-| `task1-knowledge-brain/` | Knowledge Brain: crawl, search, answer, API | Python |
-| `task2-inbox-agent/` | Inbox Agent | TypeScript |
-| `task3-scope-agents/` | Meeting to Scope agent team | Python |
-| `db/init/` | Creates one Postgres role and schema per task | Shell and SQL |
-| `docs/` | Brief summary, blueprint, planning notes, diagrams | |
+| `task1-knowledge-brain/` | Crawl, search, answers, API, MCP server, screens | [README](task1-knowledge-brain/README.md) |
+| `task2-inbox-agent/` | Inbox Agent: Next.js app and worker | [README](task2-inbox-agent/README.md) |
+| `task3-scope-agents/` | Meeting to Scope: agents, API and screens | [README](task3-scope-agents/README.md) |
+| `db/init/` | One Postgres role and schema per task | |
